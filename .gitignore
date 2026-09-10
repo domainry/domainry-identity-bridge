@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+config.local.json
+*.local.json
+coverage.out
+/bin/
+.DS_Store

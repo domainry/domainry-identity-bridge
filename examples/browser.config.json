@@ -1,0 +1,66 @@
+{
+  "version": "domainry-identity-bridge-config-v1",
+  "installation_id": "example-installation",
+  "application_key": "example-application",
+  "provider": {
+    "key": "account-provider",
+    "verification": {
+      "kind": "http_introspection",
+      "endpoint": "https://accounts.example.com/api/session/verify",
+      "method": "POST",
+      "timeout": "3s",
+      "max_response_bytes": 65536,
+      "credential": {
+        "location": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "service_headers": {
+        "X-Application-Credential": {
+          "environment": "ACCOUNT_PROVIDER_SERVICE_CREDENTIAL"
+        }
+      },
+      "response": {
+        "subject_id": "/data/subject/id",
+        "display_name": "/data/subject/name",
+        "email": "/data/subject/email",
+        "expires_at": "/data/expires_at",
+        "expiry_format": "unix_seconds",
+        "checks": [
+          {
+            "path": "/data/active",
+            "equals": true
+          },
+          {
+            "path": "/data/token_type",
+            "equals": "access"
+          },
+          {
+            "path": "/data/audience",
+            "equals": "example-application"
+          }
+        ]
+      }
+    }
+  },
+  "personal_workspace": {
+    "mode": "per_user",
+    "create_on_first_access": true,
+    "name_template": "Personal workspace",
+    "initial_role_keys": [
+      "personal_owner"
+    ]
+  },
+  "browser": {
+    "display_name": "Accounts",
+    "login_url": "https://accounts.example.com/login?return_url=https%3A%2F%2Fapp.example.com%2F",
+    "logout_url": "https://accounts.example.com/logout",
+    "credential": {
+      "location": "cookie",
+      "name": "account_session"
+    },
+    "allowed_origins": [
+      "https://app.example.com"
+    ]
+  }
+}

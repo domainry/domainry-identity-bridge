@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>外部账号接入示例</title>
+<body>
+<h1>个人工作空间</h1>
+<p>登录账号由已配置的账号系统管理。</p>
+<button id="login">登录</button>
+<button id="restore">恢复会话</button>
+<button id="logout">退出</button>
+<pre id="result" role="status"></pre>
+<script type="module">
+import { ExternalIdentityClient } from '/auth/external/client.js'
+// Serve this page on the Runtime origin. Cookie mode needs no credential
+// access; header mode injects a callback from the existing login SDK.
+const client = new ExternalIdentityClient({ runtimeURL: window.location.origin })
+const show = value => document.getElementById('result').textContent = value
+const action = fn => async () => { try { await fn() } catch (error) { show(error.message) } }
+document.getElementById('login').onclick = action(() => client.login())
+document.getElementById('logout').onclick = action(() => client.logout())
+document.getElementById('restore').onclick = action(async () => {
+ const session = await client.session()
+ show(JSON.stringify({ name: session.user.name, workspace: session.workspace_id }, null, 2))
+})
+</script>
+</body>
+</html>

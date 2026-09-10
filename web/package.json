@@ -1,0 +1,8 @@
+{
+  "name": "@domainry/identity-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./client.d.ts", "default": "./client.js" } },
+  "scripts": { "test": "node --test client.test.js" }
+}

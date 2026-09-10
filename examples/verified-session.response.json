@@ -1,0 +1,13 @@
+{
+  "data": {
+    "active": true,
+    "token_type": "access",
+    "audience": "example-application",
+    "expires_at": 2000000000,
+    "subject": {
+      "id": "example-user",
+      "name": "Example User",
+      "email": "user@example.com"
+    }
+  }
+}
