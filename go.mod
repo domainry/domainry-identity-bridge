@@ -6,7 +6,7 @@ toolchain go1.26.6
 
 require (
 	github.com/domainry/domainry-foundation v0.1.0
-	github.com/domainry/domainry-identity-sdk v0.1.4
+	github.com/domainry/domainry-identity-sdk v0.1.5
 	github.com/domainry/domainry-orm v0.1.30
 	modernc.org/sqlite v1.57.0
 )
