@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/domainry/domainry-foundation/requestcontext"
 	"github.com/domainry/domainry-identity-bridge/config"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/authorization/evaluator"
@@ -202,7 +203,7 @@ func TestPersonalWorkspacePersistsAndIsolatesAcrossApplications(t *testing.T) {
 		t.Fatal("application change allocated second workspace")
 	}
 	ctx := identity.WithRequestIdentity(t.Context(), identity.RequestIdentity{Principal: first})
-	if _, err := b.Projection().ListUsers(ctx, identity.ProjectionQuery{Application: identity.ApplicationScope{WorkspaceID: identity.WorkspaceID(second.WorkspaceID)}}); err == nil {
+	if _, err := b.Projection().ListUsers(requestcontext.WithWorkspaceID(ctx, second.WorkspaceID), identity.ProjectionQuery{}); err == nil {
 		t.Fatal("projection allowed cross-workspace access")
 	}
 }
@@ -283,7 +284,7 @@ func TestPrincipalResolverRequiresExplicitWorkspaceAndConfiguredServiceRole(t *t
 	if _, err := b.Resolve(t.Context(), identity.PrincipalResolutionRequest{SubjectID: identity.SubjectID(p.UserID)}); err == nil {
 		t.Fatal("unscoped background principal accepted")
 	}
-	resolution, err := b.Resolve(t.Context(), identity.PrincipalResolutionRequest{SubjectID: identity.SubjectID(p.UserID), Application: identity.ApplicationScope{WorkspaceID: identity.WorkspaceID(p.WorkspaceID)}})
+	resolution, err := b.Resolve(requestcontext.WithWorkspaceID(t.Context(), p.WorkspaceID), identity.PrincipalResolutionRequest{SubjectID: identity.SubjectID(p.UserID)})
 	if err != nil || resolution.Principal.UserID != p.UserID {
 		t.Fatalf("background principal=%+v err=%v", resolution.Principal, err)
 	}
@@ -296,11 +297,11 @@ func TestPrincipalResolverRequiresExplicitWorkspaceAndConfiguredServiceRole(t *t
 	if _, err := b.PublishProjectRoles(t.Context(), catalog); err != nil {
 		t.Fatal(err)
 	}
-	resolution, err = b.Resolve(t.Context(), identity.PrincipalResolutionRequest{SubjectID: "workflow:nightly", RoleKey: "nightly", Application: identity.ApplicationScope{WorkspaceID: identity.WorkspaceID(p.WorkspaceID)}})
+	resolution, err = b.Resolve(requestcontext.WithWorkspaceID(t.Context(), p.WorkspaceID), identity.PrincipalResolutionRequest{SubjectID: "workflow:nightly", RoleKey: "nightly"})
 	if err != nil || resolution.Principal.User.AccountType != "service" {
 		t.Fatalf("service principal=%+v err=%v", resolution.Principal, err)
 	}
-	if _, err := b.Resolve(t.Context(), identity.PrincipalResolutionRequest{SubjectID: "workflow:invented", RoleKey: "nightly", Application: identity.ApplicationScope{WorkspaceID: identity.WorkspaceID(p.WorkspaceID)}}); err == nil {
+	if _, err := b.Resolve(requestcontext.WithWorkspaceID(t.Context(), p.WorkspaceID), identity.PrincipalResolutionRequest{SubjectID: "workflow:invented", RoleKey: "nightly"}); err == nil {
 		t.Fatal("invented service subject accepted")
 	}
 }

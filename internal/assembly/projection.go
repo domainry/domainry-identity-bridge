@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/domainry/domainry-foundation/requestcontext"
 	identity "github.com/domainry/domainry-identity-sdk"
 )
 
 type projection struct{ binding *Binding }
 
-func (adapter projection) scope(ctx context.Context, scope identity.ApplicationScope) (string, error) {
-	if scope.ApplicationKey != "" && string(scope.ApplicationKey) != adapter.binding.Config.ApplicationKey {
-		return "", denied()
-	}
-	workspace := string(scope.WorkspaceID)
+func (adapter projection) scope(ctx context.Context) (string, error) {
+	workspace := requestcontext.WorkspaceID(ctx)
 	if workspace == "" {
 		if principal, ok := identity.PrincipalFromContext(ctx); ok {
 			workspace = principal.WorkspaceID
@@ -37,7 +35,7 @@ func (adapter projection) scope(ctx context.Context, scope identity.ApplicationS
 }
 
 func (adapter projection) FindUser(ctx context.Context, request identity.UserLookup) (identity.User, bool, error) {
-	workspace, err := adapter.scope(ctx, request.Application)
+	workspace, err := adapter.scope(ctx)
 	if err != nil {
 		return identity.User{}, false, err
 	}
@@ -77,20 +75,20 @@ func (adapter projection) users(ctx context.Context, workspace string) ([]identi
 	return result, nil
 }
 func (adapter projection) ListUsers(ctx context.Context, request identity.ProjectionQuery) ([]identity.User, error) {
-	workspace, err := adapter.scope(ctx, request.Application)
+	workspace, err := adapter.scope(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return adapter.users(ctx, workspace)
 }
 func (adapter projection) FindOrganizationUnit(ctx context.Context, request identity.OrganizationUnitLookup) (identity.OrganizationUnit, bool, error) {
-	if _, err := adapter.scope(ctx, request.Application); err != nil {
+	if _, err := adapter.scope(ctx); err != nil {
 		return identity.OrganizationUnit{}, false, err
 	}
 	return identity.OrganizationUnit{}, false, nil
 }
 func (adapter projection) ListRoles(ctx context.Context, request identity.ProjectionQuery) ([]identity.Role, error) {
-	if _, err := adapter.scope(ctx, request.Application); err != nil {
+	if _, err := adapter.scope(ctx); err != nil {
 		return nil, err
 	}
 	catalog, err := adapter.binding.roles(ctx, adapter.binding.Store.DB)
@@ -104,7 +102,7 @@ func (adapter projection) ListRoles(ctx context.Context, request identity.Projec
 	return roles, nil
 }
 func (adapter projection) ListUserRoleAssignments(ctx context.Context, request identity.UserRoleAssignmentQuery) ([]identity.UserRoleAssignment, error) {
-	workspace, err := adapter.scope(ctx, request.Application)
+	workspace, err := adapter.scope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -129,10 +127,7 @@ func (adapter projection) ListUserRoleAssignments(ctx context.Context, request i
 }
 
 func (binding *Binding) Resolve(ctx context.Context, request identity.PrincipalResolutionRequest) (identity.PrincipalResolution, error) {
-	if request.Application.ApplicationKey != "" && string(request.Application.ApplicationKey) != binding.Config.ApplicationKey {
-		return identity.PrincipalResolution{}, denied()
-	}
-	workspace := string(request.Application.WorkspaceID)
+	workspace := requestcontext.WorkspaceID(ctx)
 	if workspace == "" {
 		if principal, ok := identity.PrincipalFromContext(ctx); ok {
 			workspace = principal.WorkspaceID
