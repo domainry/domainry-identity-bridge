@@ -3,11 +3,12 @@ package assembly
 import (
 	"context"
 	"fmt"
-	"github.com/domainry/domainry-foundation/modulecapability"
 	"net/http"
 	"time"
 
+	"github.com/domainry/domainry-foundation/modulecapability"
 	bridge "github.com/domainry/domainry-identity-bridge"
+	bridgecapability "github.com/domainry/domainry-identity-bridge/capability"
 	"github.com/domainry/domainry-identity-bridge/config"
 	"github.com/domainry/domainry-identity-bridge/internal/application"
 	"github.com/domainry/domainry-identity-bridge/internal/persistence"
@@ -42,7 +43,7 @@ func Open(ctx context.Context, cfg config.Config, ref identity.ApplicationRef, h
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := capabilityBinding()
+	capabilities, err := bridgecapability.Open(bridgecapability.Inputs{})
 	if err != nil {
 		return nil, err
 	}

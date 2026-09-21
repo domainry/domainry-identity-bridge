@@ -5,15 +5,15 @@ import (
 	"net/http"
 	"strings"
 
-	action "github.com/domainry/domainry-foundation/action"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	bridge "github.com/domainry/domainry-identity-bridge"
+	bridgecapability "github.com/domainry/domainry-identity-bridge/capability"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
 )
 
-const discoveryPath = "/auth/external/config"
-const sessionPath = "/auth/external/session"
+const discoveryPath = bridgecapability.ExternalConfigPath
+const sessionPath = bridgecapability.ExternalSessionPath
 
 func (b *Binding) ReadAccessCredential(r *http.Request) (string, error) {
 	if b.Config.Browser == nil {
@@ -61,18 +61,11 @@ func (browserAdapter) ContractVersion() string { return modulehttp.ContractVersi
 func (browserAdapter) Owner() string           { return "identity" }
 func (browserAdapter) Name() string            { return "external_identity" }
 func (browserAdapter) Routes() []modulehttp.Route {
-	routes := []modulehttp.Route{}
-	for _, value := range []struct {
-		key, path string
-		strategy  action.AuthorizationStrategy
-	}{{"config", discoveryPath, action.AuthorizationAnonymous}, {"client", "/auth/external/client.js", action.AuthorizationAnonymous}, {"session", sessionPath, action.AuthorizationAuthenticated}} {
-		routes = append(routes, modulehttp.Route{Action: action.ActionDefinition{Key: "identity.external." + value.key, Owner: "module:identity", SourceKind: "module_adapter", CapabilityKey: "identity.external", CapabilityLabel: "External identity", OperationKey: value.key, OperationLabel: value.key, Label: "External identity " + value.key, Exposures: []action.Exposure{action.ExposurePublic, action.ExposureManagement}, Authorization: action.Authorization{Strategy: value.strategy}, HTTP: &action.HTTPBinding{Method: "GET", RouteTemplate: value.path}, EffectClass: action.EffectRead, RiskLevel: action.RiskLow, IdempotencyDecision: "not_applicable", AuditClass: "identity_external", LifecycleStatus: action.LifecycleActive}})
-	}
-	return routes
+	return bridgecapability.ExternalAdapterRoutes()
 }
 func (a browserAdapter) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /auth/external/client.js", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+bridgecapability.ExternalClientPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -82,14 +75,15 @@ func (a browserAdapter) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		browser := a.binding.Config.Browser
-		public := map[string]any{"mode": "external", "session_path": sessionPath, "application_key": a.binding.Config.ApplicationKey}
+		public := bridgecapability.BrowserConfigResponse{Mode: "external", SessionPath: sessionPath, ApplicationKey: a.binding.Config.ApplicationKey}
 		if browser != nil {
-			public["display_name"] = browser.DisplayName
-			public["login_url"] = browser.LoginURL
-			public["logout_url"] = browser.LogoutURL
-			public["credential"] = map[string]string{"location": browser.Credential.Location}
+			public.DisplayName = browser.DisplayName
+			public.LoginURL = browser.LoginURL
+			public.LogoutURL = &browser.LogoutURL
+			public.Credential = &bridgecapability.BrowserCredentialResponse{Location: browser.Credential.Location}
 			if browser.Credential.Location == "header" {
-				public["credential"] = browser.Credential
+				public.Credential.Name = browser.Credential.Name
+				public.Credential.Prefix = browser.Credential.Prefix
 			}
 		}
 		json.NewEncoder(w).Encode(public)
@@ -107,7 +101,7 @@ func (a browserAdapter) Handler() http.Handler {
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"workspace_id": principal.WorkspaceID, "subject_id": principal.UserID, "user": principal.User, "roles": roles, "permissions": principal.PermissionKeys(), "authorization_revision": principal.AuthorizationRevision, "expires_at": principal.AccessBundle.ExpiresAt, "access_bundle": principal.AccessBundle})
+		json.NewEncoder(w).Encode(bridgecapability.BrowserSessionResponse{WorkspaceID: principal.WorkspaceID, SubjectID: principal.UserID, User: principal.User, Roles: roles, Permissions: principal.PermissionKeys(), AuthorizationRevision: principal.AuthorizationRevision, ExpiresAt: principal.AccessBundle.ExpiresAt, AccessBundle: principal.AccessBundle})
 	})
 	return mux
 }

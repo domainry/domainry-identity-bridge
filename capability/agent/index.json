@@ -1,0 +1,45 @@
+{
+  "contract_version": "domainry-agent-guide-index-v3",
+  "owner": {
+    "kind": "module",
+    "key": "identity"
+  },
+  "guides": [
+    {
+      "key": "external_account_reuse",
+      "question": "When should a product reuse an external account authority through the Identity bridge?",
+      "path": "capability/agent/external-account-reuse.md",
+      "problems_solved": [
+        "Reuses an existing HTTPS login authority while Domainry owns authorization projection and one persistent personal Workspace per external subject."
+      ],
+      "business_scenarios": [
+        "A company already authenticates employees in a central portal and each employee needs one personal Domainry Workspace reused by several installed applications.",
+        "A partner platform presents a credential that must be revalidated against its HTTPS endpoint before Domainry restores the mapped user and personal Workspace."
+      ],
+      "requirement_signals": [
+        "reuse existing accounts",
+        "reuse existing login",
+        "external token validation",
+        "personal workspace per external user"
+      ],
+      "use_when": [
+        "An external authority owns human authentication and exposes a bounded HTTPS credential-verification contract"
+      ],
+      "do_not_use_when": [
+        "Domainry must create credentials or organizations, or several external users must share one externally owned Workspace"
+      ],
+      "related_guides": [],
+      "provided_capability_keys": [
+        "authentication",
+        "authorization",
+        "personal_workspace",
+        "directory_projection"
+      ],
+      "required_capability_keys": [],
+      "embedded_capability_keys": [],
+      "required_owner_keys": [],
+      "usage_kind": "selection"
+    }
+  ]
+}
+
