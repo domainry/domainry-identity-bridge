@@ -36,15 +36,7 @@ func Open(ctx context.Context, handle identity.DatabaseHandle) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	ddl, args, err := schema.NewTable(renderer, stateTable).Columns(
-		schema.Column("state_key", schema.TextKey(64)).NotNull(),
-		schema.Column("namespace", schema.TextKey(64)).NotNull(),
-		schema.Column("kind", schema.TextKey(32)).NotNull(),
-		schema.Column("workspace_id", schema.TextKey(255)).NotNull(),
-		schema.Column("subject_id", schema.TextKey(255)).NotNull(),
-		schema.Column("revision", schema.TextKey(64)).NotNull(),
-		schema.Column("payload", schema.Text()).NotNull(),
-	).PrimaryKey("state_key").Build()
+	ddl, args, err := stateTableDDL(renderer)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +47,18 @@ func Open(ctx context.Context, handle identity.DatabaseHandle) (*Store, error) {
 		return nil, err
 	}
 	return &Store{DB: db, Renderer: renderer, Host: handle.ExternalWorkspaces}, nil
+}
+
+func stateTableDDL(renderer dialect.Renderer) (string, []any, error) {
+	return schema.NewTable(renderer, stateTable).Columns(
+		schema.Column("state_key", schema.TextKey(64)).NotNull(),
+		schema.Column("namespace", schema.TextKey(64)).NotNull(),
+		schema.Column("kind", schema.TextKey(32)).NotNull(),
+		schema.Column("workspace_id", schema.TextKey(255)).NotNull(),
+		schema.Column("subject_id", schema.TextKey(255)).NotNull(),
+		schema.Column("revision", schema.TextKey(64)).NotNull(),
+		schema.Column("payload", schema.LongText()).NotNull(),
+	).PrimaryKey("state_key").Build()
 }
 
 func Key(parts ...string) string {
