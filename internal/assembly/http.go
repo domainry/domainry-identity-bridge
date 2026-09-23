@@ -7,13 +7,12 @@ import (
 
 	"github.com/domainry/domainry-foundation/modulehttp"
 	bridge "github.com/domainry/domainry-identity-bridge"
-	bridgecapability "github.com/domainry/domainry-identity-bridge/capability"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
 )
 
-const discoveryPath = bridgecapability.ExternalConfigPath
-const sessionPath = bridgecapability.ExternalSessionPath
+const discoveryPath = externalConfigPath
+const sessionPath = externalSessionPath
 
 func (b *Binding) ReadAccessCredential(r *http.Request) (string, error) {
 	if b.Config.Browser == nil {
@@ -61,11 +60,11 @@ func (browserAdapter) ContractVersion() string { return modulehttp.ContractVersi
 func (browserAdapter) Owner() string           { return "identity" }
 func (browserAdapter) Name() string            { return "external_identity" }
 func (browserAdapter) Routes() []modulehttp.Route {
-	return bridgecapability.ExternalAdapterRoutes()
+	return externalAdapterRoutes()
 }
 func (a browserAdapter) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+bridgecapability.ExternalClientPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+externalClientPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -75,12 +74,12 @@ func (a browserAdapter) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		browser := a.binding.Config.Browser
-		public := bridgecapability.BrowserConfigResponse{Mode: "external", SessionPath: sessionPath, ApplicationKey: a.binding.Config.ApplicationKey}
+		public := browserConfigResponse{Mode: "external", SessionPath: sessionPath, ApplicationKey: a.binding.Config.ApplicationKey}
 		if browser != nil {
 			public.DisplayName = browser.DisplayName
 			public.LoginURL = browser.LoginURL
 			public.LogoutURL = &browser.LogoutURL
-			public.Credential = &bridgecapability.BrowserCredentialResponse{Location: browser.Credential.Location}
+			public.Credential = &browserCredentialResponse{Location: browser.Credential.Location}
 			if browser.Credential.Location == "header" {
 				public.Credential.Name = browser.Credential.Name
 				public.Credential.Prefix = browser.Credential.Prefix
@@ -101,7 +100,7 @@ func (a browserAdapter) Handler() http.Handler {
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bridgecapability.BrowserSessionResponse{WorkspaceID: principal.WorkspaceID, SubjectID: principal.UserID, User: principal.User, Roles: roles, Permissions: principal.PermissionKeys(), AuthorizationRevision: principal.AuthorizationRevision, ExpiresAt: principal.AccessBundle.ExpiresAt, AccessBundle: principal.AccessBundle})
+		json.NewEncoder(w).Encode(browserSessionResponse{WorkspaceID: principal.WorkspaceID, SubjectID: principal.UserID, User: principal.User, Roles: roles, Permissions: principal.PermissionKeys(), AuthorizationRevision: principal.AuthorizationRevision, ExpiresAt: principal.AccessBundle.ExpiresAt, AccessBundle: principal.AccessBundle})
 	})
 	return mux
 }

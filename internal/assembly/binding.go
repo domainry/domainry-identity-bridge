@@ -6,9 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/domainry/domainry-foundation/modulecapability"
 	bridge "github.com/domainry/domainry-identity-bridge"
-	bridgecapability "github.com/domainry/domainry-identity-bridge/capability"
 	"github.com/domainry/domainry-identity-bridge/config"
 	"github.com/domainry/domainry-identity-bridge/internal/application"
 	"github.com/domainry/domainry-identity-bridge/internal/persistence"
@@ -17,7 +15,6 @@ import (
 )
 
 type Binding struct {
-	modulecapability.Binding
 	Config      config.Config
 	Application identity.ApplicationRef
 	Store       *persistence.Store
@@ -43,11 +40,7 @@ func Open(ctx context.Context, cfg config.Config, ref identity.ApplicationRef, h
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := bridgecapability.Open(bridgecapability.Inputs{})
-	if err != nil {
-		return nil, err
-	}
-	value := &Binding{Binding: capabilities, Config: cfg, Application: ref, Store: store, Now: now}
+	value := &Binding{Config: cfg, Application: ref, Store: store, Now: now}
 	value.Service = &application.Service{Config: cfg, Host: bridge.Host{Workspaces: value, Policies: value}, Verifier: verifier, Now: now}
 	return value, nil
 }
