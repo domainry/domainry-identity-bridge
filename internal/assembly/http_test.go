@@ -1,6 +1,7 @@
 package assembly
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -53,5 +54,24 @@ func TestHTTPAdapterAndCookieOriginBoundary(t *testing.T) {
 		if strings.Contains(response.Body.String(), secret) {
 			t.Fatal("discovery exposes verifier configuration")
 		}
+	}
+}
+
+func TestExternalSessionUsesCanonicalHTTPErrorResponse(t *testing.T) {
+	h := openHost(t, filepath.Join(t.TempDir(), "bridge.db"))
+	b := testBinding(t, h, "app")
+	response := httptest.NewRecorder()
+	b.HTTPAdapters()[0].Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, sessionPath, nil))
+	var failure struct {
+		Code      string            `json:"code"`
+		Message   string            `json:"message"`
+		Params    map[string]string `json:"params"`
+		RequestID string            `json:"request_id"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&failure); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusUnauthorized || failure.Code != "identity.external.login_required" || failure.Message == "" || failure.Params != nil {
+		t.Fatalf("unexpected canonical failure: status=%d response=%+v", response.Code, failure)
 	}
 }
