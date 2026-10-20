@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	bridge "github.com/domainry/domainry-identity-bridge"
-	"github.com/domainry/domainry-identity-bridge/config"
+	"github.com/domainry/domainry-identity-bridge/internal/config"
+	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-sdk/authorization"
 )
 

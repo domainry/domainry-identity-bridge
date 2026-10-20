@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/domainry/domainry-foundation/requestcontext"
-	"github.com/domainry/domainry-identity-bridge/config"
+	"github.com/domainry/domainry-identity-bridge/internal/config"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/authorization/evaluator"
 	"github.com/domainry/domainry-identity-sdk/modulehost"
@@ -102,7 +102,7 @@ func openHost(t *testing.T, path string) *databaseHost {
 }
 func testBinding(t *testing.T, h *databaseHost, application string) *Binding {
 	t.Helper()
-	raw, err := os.ReadFile("../../examples/personal.config.json")
+	raw, err := os.ReadFile("../../../docs/examples/personal.config.json")
 	if err != nil {
 		t.Fatal(err)
 	}

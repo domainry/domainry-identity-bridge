@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/domainry/domainry-identity-bridge/config"
-	"github.com/domainry/domainry-identity-bridge/internal/assembly"
+	moduleassembly "github.com/domainry/domainry-identity-bridge/internal/assembly/module"
+	"github.com/domainry/domainry-identity-bridge/module/config"
 	identity "github.com/domainry/domainry-identity-sdk"
 )
 
@@ -38,7 +38,7 @@ func (factory *Factory) OpenExternalWithDatabase(ctx context.Context, applicatio
 	if err != nil {
 		return nil, err
 	}
-	return assembly.Open(ctx, cfg, application, handle, factory.options.Transport, factory.options.LookupEnvironment, factory.options.Now)
+	return moduleassembly.Open(ctx, cfg, application, handle, factory.options.Transport, factory.options.LookupEnvironment, factory.options.Now)
 }
 
 var _ identity.ExternalDatabaseFactory = (*Factory)(nil)

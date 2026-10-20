@@ -10,12 +10,33 @@ import (
 	"net/http"
 	"time"
 
-	bridge "github.com/domainry/domainry-identity-bridge"
-	"github.com/domainry/domainry-identity-bridge/config"
 	"github.com/domainry/domainry-identity-bridge/internal/application"
+	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-bridge/internal/provider"
+	"github.com/domainry/domainry-identity-bridge/module/config"
 	"github.com/domainry/domainry-identity-sdk/authorization"
 )
+
+const ContractVersion = bridge.ContractVersion
+
+var (
+	ErrCredentialRejected   = bridge.ErrCredentialRejected
+	ErrProviderUnavailable  = bridge.ErrProviderUnavailable
+	ErrProviderResponse     = bridge.ErrProviderResponse
+	ErrWorkspaceUnavailable = bridge.ErrWorkspaceUnavailable
+	ErrWorkspaceMismatch    = bridge.ErrWorkspaceMismatch
+	ErrWorkspaceInactive    = bridge.ErrWorkspaceInactive
+	ErrPolicyUnavailable    = bridge.ErrPolicyUnavailable
+	ErrPolicyMismatch       = bridge.ErrPolicyMismatch
+)
+
+type ExternalSubject = bridge.ExternalSubject
+type PersonalWorkspaceRequest = bridge.PersonalWorkspaceRequest
+type WorkspaceBinding = bridge.WorkspaceBinding
+type WorkspaceAuthority = bridge.WorkspaceAuthority
+type PolicyRequest = bridge.PolicyRequest
+type PolicyAuthority = bridge.PolicyAuthority
+type Host = bridge.Host
 
 type Options struct {
 	// Transport is host-owned and must preserve TLS verification in production.
@@ -26,7 +47,7 @@ type Options struct {
 
 type Module struct{ service *application.Service }
 
-func Open(cfg config.Config, host bridge.Host, options Options) (*Module, error) {
+func Open(cfg config.Config, host Host, options Options) (*Module, error) {
 	if host.Workspaces == nil || host.Policies == nil {
 		return nil, fmt.Errorf("bridge requires workspace and policy authorities")
 	}

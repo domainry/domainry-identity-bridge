@@ -24,7 +24,7 @@ Runtime 的 `pkg/runtimehost` 生产依赖检查不包含 `domainry-identity/` �
 - 交付清单中的 Bridge 身份往返保留；代理拒绝与清单哈希不符的 Bridge 模块内容。
 - Runtime 源模块发布测试通过：冻结依赖包、使用独立模块缓存，在 `GOWORK=off` 的消费者中组合 Runtime 与 Bridge 并成功编译；交付内容不保留本地 replace。
 
-测试使用本地 TLS 账号协议服务和测试数据库，不使用线上用户凭证。项目源码验证脚本为 `scripts/verify.sh`。
+测试使用本地 TLS 账号协议服务和测试数据库，不使用线上用户凭证。项目源码验证入口为 Makefile 中的 `check` 与 `integration-check`。
 
 扩展执行的 Runtime 全模块回归还有现有锁文件漂移失败：Identity 实现/SDK 与 Notification 实现的 `go.mod` 版本和模块锁不一致，Agent / Integration 的能力摘要与模块锁不一致。本次没有修改这些版本或刷新其他模块的摘要；以上外部模式专项验收已通过，不代表整套仓库回归全部通过。
 
@@ -60,7 +60,7 @@ HTTP 请求每次向外部接口验真；Bridge 不另造长期登录态，也�
 }
 ```
 
-可用 [Token 校验配置](../examples/token-validation.config.json) 对接，部署时填入实际 HTTPS 地址和业务应用配置。没有额外服务签名头；Cookie 名称、JSON 字段名和响应路径均由配置决定。该接口没有姓名字段，默认使用返回的邮箱作为显示名称，不杜撰字段或增加一次用户信息请求。
+可用 [Token 校验配置](examples/token-validation.config.json) 对接，部署时填入实际 HTTPS 地址和业务应用配置。没有额外服务签名头；Cookie 名称、JSON 字段名和响应路径均由配置决定。该接口没有姓名字段，默认使用返回的邮箱作为显示名称，不杜撰字段或增加一次用户信息请求。
 
 账号服务验证 Token、查询用户并判断可用性；Bridge 只接受 `errCode=0`、`valid=true`、`token_type=access` 且尚未过期的响应。账号禁用或 Token 失效后，后续请求不会继续使用之前成功的结果。权限仍由内部应用角色决定。
 

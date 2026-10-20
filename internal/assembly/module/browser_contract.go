@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"time"

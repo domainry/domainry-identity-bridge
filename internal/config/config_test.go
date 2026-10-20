@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/domainry/domainry-identity-bridge/config"
+	"github.com/domainry/domainry-identity-bridge/internal/config"
 )
 
 func example(t *testing.T) config.Config {
 	t.Helper()
-	file, err := os.Open("../examples/personal.config.json")
+	file, err := os.Open("../../docs/examples/personal.config.json")
 	if err != nil {
 		t.Fatal(err)
 	}

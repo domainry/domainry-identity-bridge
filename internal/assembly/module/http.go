@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
-	bridge "github.com/domainry/domainry-identity-bridge"
+	browser "github.com/domainry/domainry-identity-bridge/internal/transport/browser"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
 )
@@ -69,7 +69,7 @@ func (a browserAdapter) Handler() http.Handler {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = w.Write([]byte(bridge.BrowserClientSource))
+		_, _ = w.Write([]byte(browser.Source))
 	})
 	mux.HandleFunc("GET "+discoveryPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

@@ -14,9 +14,8 @@ import (
 	"testing"
 	"time"
 
-	bridge "github.com/domainry/domainry-identity-bridge"
-	"github.com/domainry/domainry-identity-bridge/config"
 	"github.com/domainry/domainry-identity-bridge/module"
+	"github.com/domainry/domainry-identity-bridge/module/config"
 	"github.com/domainry/domainry-identity-sdk/authorization"
 )
 
@@ -24,7 +23,7 @@ var now = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func configuration(t *testing.T) config.Config {
 	t.Helper()
-	file, err := os.Open("../examples/personal.config.json")
+	file, err := os.Open("../docs/examples/personal.config.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,26 +38,26 @@ func configuration(t *testing.T) config.Config {
 // hostFixture is a test double, not a production durability implementation.
 type hostFixture struct {
 	mu             sync.Mutex
-	requests       []bridge.PersonalWorkspaceRequest
-	bindings       map[string]bridge.WorkspaceBinding
+	requests       []module.PersonalWorkspaceRequest
+	bindings       map[string]module.WorkspaceBinding
 	policyCalls    int
-	alterWorkspace func(*bridge.WorkspaceBinding)
+	alterWorkspace func(*module.WorkspaceBinding)
 	alterPolicy    func(*authorization.AccessBundle)
 }
 
-func (host *hostFixture) ResolvePersonalWorkspace(_ context.Context, req bridge.PersonalWorkspaceRequest) (bridge.WorkspaceBinding, error) {
+func (host *hostFixture) ResolvePersonalWorkspace(_ context.Context, req module.PersonalWorkspaceRequest) (module.WorkspaceBinding, error) {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	host.requests = append(host.requests, req)
 	if host.bindings == nil {
-		host.bindings = make(map[string]bridge.WorkspaceBinding)
+		host.bindings = make(map[string]module.WorkspaceBinding)
 	}
 	value, found := host.bindings[req.IdempotencyKey]
 	if !found {
 		if !req.CreateIfMissing {
-			return bridge.WorkspaceBinding{}, errors.New("missing")
+			return module.WorkspaceBinding{}, errors.New("missing")
 		}
-		value = bridge.WorkspaceBinding{InstallationID: req.InstallationID, ProviderKey: req.ProviderKey, ExternalSubjectID: req.ExternalSubjectID,
+		value = module.WorkspaceBinding{InstallationID: req.InstallationID, ProviderKey: req.ProviderKey, ExternalSubjectID: req.ExternalSubjectID,
 			WorkspaceID: fmt.Sprintf("workspace-%d", len(host.bindings)+1), UserID: fmt.Sprintf("user-%d", len(host.bindings)+1), Active: true}
 		host.bindings[req.IdempotencyKey] = value
 	}
@@ -68,7 +67,7 @@ func (host *hostFixture) ResolvePersonalWorkspace(_ context.Context, req bridge.
 	return value, nil
 }
 
-func (host *hostFixture) ResolveAccess(_ context.Context, request bridge.PolicyRequest) (authorization.AccessBundle, error) {
+func (host *hostFixture) ResolveAccess(_ context.Context, request module.PolicyRequest) (authorization.AccessBundle, error) {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	host.policyCalls++
@@ -87,7 +86,7 @@ func (host *hostFixture) ResolveAccess(_ context.Context, request bridge.PolicyR
 func open(t *testing.T, cfg config.Config, host *hostFixture, server *httptest.Server) *module.Module {
 	t.Helper()
 	cfg.Provider.Verification.Endpoint = server.URL
-	value, err := module.Open(cfg, bridge.Host{Workspaces: host, Policies: host}, module.Options{
+	value, err := module.Open(cfg, module.Host{Workspaces: host, Policies: host}, module.Options{
 		Transport: server.Client().Transport, Now: func() time.Time { return now },
 		LookupEnvironment: func(string) (string, bool) { return "service-secret", true },
 	})
@@ -157,18 +156,18 @@ func TestRejectsUnverifiedCredentialsBeforeProvisioning(t *testing.T) {
 		maxBytes int64
 		expected error
 	}{
-		{name: "inactive", mutate: func(d map[string]any) { d["active"] = false }, expected: bridge.ErrCredentialRejected},
-		{name: "missing active", mutate: func(d map[string]any) { delete(d, "active") }, expected: bridge.ErrCredentialRejected},
-		{name: "string true", mutate: func(d map[string]any) { d["active"] = "true" }, expected: bridge.ErrCredentialRejected},
-		{name: "refresh credential", mutate: func(d map[string]any) { d["token_type"] = "refresh" }, expected: bridge.ErrCredentialRejected},
-		{name: "wrong application", mutate: func(d map[string]any) { d["audience"] = "different-app" }, expected: bridge.ErrCredentialRejected},
-		{name: "expired", mutate: func(d map[string]any) { d["expires_at"] = now.Unix() }, expected: bridge.ErrCredentialRejected},
-		{name: "missing subject", mutate: func(d map[string]any) { delete(d, "subject") }, expected: bridge.ErrProviderResponse},
-		{name: "fractional ID", mutate: func(d map[string]any) { d["subject"].(map[string]any)["id"] = 1.5 }, expected: bridge.ErrProviderResponse},
-		{name: "unauthorized", status: 401, expected: bridge.ErrCredentialRejected},
-		{name: "provider failure", status: 500, raw: "opaque-access-token service-secret", expected: bridge.ErrProviderUnavailable},
-		{name: "oversized response", maxBytes: 10, expected: bridge.ErrProviderResponse},
-		{name: "malformed JSON", raw: `{"data":`, expected: bridge.ErrProviderResponse},
+		{name: "inactive", mutate: func(d map[string]any) { d["active"] = false }, expected: module.ErrCredentialRejected},
+		{name: "missing active", mutate: func(d map[string]any) { delete(d, "active") }, expected: module.ErrCredentialRejected},
+		{name: "string true", mutate: func(d map[string]any) { d["active"] = "true" }, expected: module.ErrCredentialRejected},
+		{name: "refresh credential", mutate: func(d map[string]any) { d["token_type"] = "refresh" }, expected: module.ErrCredentialRejected},
+		{name: "wrong application", mutate: func(d map[string]any) { d["audience"] = "different-app" }, expected: module.ErrCredentialRejected},
+		{name: "expired", mutate: func(d map[string]any) { d["expires_at"] = now.Unix() }, expected: module.ErrCredentialRejected},
+		{name: "missing subject", mutate: func(d map[string]any) { delete(d, "subject") }, expected: module.ErrProviderResponse},
+		{name: "fractional ID", mutate: func(d map[string]any) { d["subject"].(map[string]any)["id"] = 1.5 }, expected: module.ErrProviderResponse},
+		{name: "unauthorized", status: 401, expected: module.ErrCredentialRejected},
+		{name: "provider failure", status: 500, raw: "opaque-access-token service-secret", expected: module.ErrProviderUnavailable},
+		{name: "oversized response", maxBytes: 10, expected: module.ErrProviderResponse},
+		{name: "malformed JSON", raw: `{"data":`, expected: module.ErrProviderResponse},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +217,7 @@ func TestRedirectDoesNotForwardCredential(t *testing.T) {
 	defer server.Close()
 	host := &hostFixture{}
 	_, err := open(t, configuration(t), host, server).Authenticate(context.Background(), "access-token")
-	if !errors.Is(err, bridge.ErrProviderUnavailable) || calls != 1 || len(host.requests) != 0 {
+	if !errors.Is(err, module.ErrProviderUnavailable) || calls != 1 || len(host.requests) != 0 {
 		t.Fatalf("redirect handling: calls=%d err=%v", calls, err)
 	}
 }
@@ -228,18 +227,18 @@ func TestWorkspaceAndPolicyMustMatchVerifiedOwner(t *testing.T) {
 	defer server.Close()
 	for _, test := range []struct {
 		name      string
-		workspace func(*bridge.WorkspaceBinding)
+		workspace func(*module.WorkspaceBinding)
 		policy    func(*authorization.AccessBundle)
 		expected  error
 	}{
-		{name: "wrong owner", workspace: func(w *bridge.WorkspaceBinding) { w.ExternalSubjectID = "subject-b" }, expected: bridge.ErrWorkspaceMismatch},
-		{name: "wrong provider", workspace: func(w *bridge.WorkspaceBinding) { w.ProviderKey = "another-provider" }, expected: bridge.ErrWorkspaceMismatch},
-		{name: "wrong installation", workspace: func(w *bridge.WorkspaceBinding) { w.InstallationID = "other" }, expected: bridge.ErrWorkspaceMismatch},
-		{name: "reserved workspace", workspace: func(w *bridge.WorkspaceBinding) { w.WorkspaceID = "default" }, expected: bridge.ErrWorkspaceMismatch},
-		{name: "suspended workspace", workspace: func(w *bridge.WorkspaceBinding) { w.Active = false }, expected: bridge.ErrWorkspaceInactive},
-		{name: "wrong policy workspace", policy: func(p *authorization.AccessBundle) { p.Subject.WorkspaceID = "other" }, expected: bridge.ErrPolicyMismatch},
-		{name: "wrong policy user", policy: func(p *authorization.AccessBundle) { p.Subject.SubjectID = "other" }, expected: bridge.ErrPolicyMismatch},
-		{name: "expired policy", policy: func(p *authorization.AccessBundle) { p.ExpiresAt = now }, expected: bridge.ErrPolicyUnavailable},
+		{name: "wrong owner", workspace: func(w *module.WorkspaceBinding) { w.ExternalSubjectID = "subject-b" }, expected: module.ErrWorkspaceMismatch},
+		{name: "wrong provider", workspace: func(w *module.WorkspaceBinding) { w.ProviderKey = "another-provider" }, expected: module.ErrWorkspaceMismatch},
+		{name: "wrong installation", workspace: func(w *module.WorkspaceBinding) { w.InstallationID = "other" }, expected: module.ErrWorkspaceMismatch},
+		{name: "reserved workspace", workspace: func(w *module.WorkspaceBinding) { w.WorkspaceID = "default" }, expected: module.ErrWorkspaceMismatch},
+		{name: "suspended workspace", workspace: func(w *module.WorkspaceBinding) { w.Active = false }, expected: module.ErrWorkspaceInactive},
+		{name: "wrong policy workspace", policy: func(p *authorization.AccessBundle) { p.Subject.WorkspaceID = "other" }, expected: module.ErrPolicyMismatch},
+		{name: "wrong policy user", policy: func(p *authorization.AccessBundle) { p.Subject.SubjectID = "other" }, expected: module.ErrPolicyMismatch},
+		{name: "expired policy", policy: func(p *authorization.AccessBundle) { p.ExpiresAt = now }, expected: module.ErrPolicyUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			host := &hostFixture{alterWorkspace: test.workspace, alterPolicy: test.policy}
@@ -312,16 +311,16 @@ func TestConcurrentRequestsUseStablePersonalOwnershipKey(t *testing.T) {
 func TestLookupOnlyAndMissingDependencies(t *testing.T) {
 	cfg := configuration(t)
 	host := &hostFixture{}
-	if _, err := module.Open(cfg, bridge.Host{}, module.Options{}); err == nil {
+	if _, err := module.Open(cfg, module.Host{}, module.Options{}); err == nil {
 		t.Fatal("missing authorities accepted")
 	}
-	if _, err := module.Open(cfg, bridge.Host{Workspaces: host, Policies: host}, module.Options{LookupEnvironment: func(string) (string, bool) { return "", false }}); err == nil {
+	if _, err := module.Open(cfg, module.Host{Workspaces: host, Policies: host}, module.Options{LookupEnvironment: func(string) (string, bool) { return "", false }}); err == nil {
 		t.Fatal("missing service credential accepted")
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(response("subject")) }))
 	defer server.Close()
 	cfg.PersonalWorkspace.CreateOnFirstAccess = false
-	if _, err := open(t, cfg, host, server).Authenticate(context.Background(), "access-token"); !errors.Is(err, bridge.ErrWorkspaceUnavailable) {
+	if _, err := open(t, cfg, host, server).Authenticate(context.Background(), "access-token"); !errors.Is(err, module.ErrWorkspaceUnavailable) {
 		t.Fatalf("unexpected error %v", err)
 	}
 	if len(host.bindings) != 0 || host.requests[0].CreateIfMissing {

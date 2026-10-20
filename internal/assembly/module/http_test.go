@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/domainry/domainry-foundation/modulehttp"
-	"github.com/domainry/domainry-identity-bridge/config"
+	"github.com/domainry/domainry-identity-bridge/internal/config"
 	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
 )
 

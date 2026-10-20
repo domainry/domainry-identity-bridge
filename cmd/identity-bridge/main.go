@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/domainry/domainry-foundation/processhost"
-	"github.com/domainry/domainry-identity-bridge/config"
+	"github.com/domainry/domainry-identity-bridge/module/config"
 )
 
 func main() {

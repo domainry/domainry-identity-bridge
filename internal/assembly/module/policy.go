@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	bridge "github.com/domainry/domainry-identity-bridge"
+	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-bridge/internal/persistence"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/authorization/evaluator"

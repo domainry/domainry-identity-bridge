@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	bridge "github.com/domainry/domainry-identity-bridge"
+	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-bridge/internal/persistence"
 	identity "github.com/domainry/domainry-identity-sdk"
 )

@@ -1,4 +1,4 @@
-package assembly
+package moduleassembly
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domainry/domainry-identity-bridge/config"
+	"github.com/domainry/domainry-identity-bridge/internal/config"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
 )
@@ -20,7 +20,7 @@ import (
 // HTTP 200 may contain an authentication error; only the business response is
 // authoritative. The service receives JSON, while the browser sends a Cookie.
 func TestTokenValidationCookieSessionUsesExistingContract(t *testing.T) {
-	file, err := os.Open("../../examples/token-validation.config.json")
+	file, err := os.Open("../../../docs/examples/token-validation.config.json")
 	if err != nil {
 		t.Fatal(err)
 	}

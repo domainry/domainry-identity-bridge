@@ -23,7 +23,7 @@
 {"IDENTITY_MODE":"external","NOTIFICATION_MODE":"module"}
 ```
 
-不要把组合模式放进 Runtime 的运行参数文件。`config/identity-external.json` 保存桥接配置。复用现有账号登录时，从 [Token 校验配置](examples/token-validation.config.json) 复制；[个人配置](examples/personal.config.json) 和 [浏览器配置](examples/browser.config.json) 展示其他提供方的自定义响应与服务凭证用法。组合根默认读取该文件，部署时可以用 `DOMAINRY_IDENTITY_BRIDGE_CONFIG_FILE` 指定其他路径。
+不要把组合模式放进 Runtime 的运行参数文件。`config/identity-external.json` 保存桥接配置。复用现有账号登录时，从 [Token 校验配置](docs/examples/token-validation.config.json) 复制；[个人配置](docs/examples/personal.config.json) 和 [浏览器配置](docs/examples/browser.config.json) 展示其他提供方的自定义响应与服务凭证用法。组合根默认读取该文件，部署时可以用 `DOMAINRY_IDENTITY_BRIDGE_CONFIG_FILE` 指定其他路径。
 
 ```go
 IdentityFactory: identitybridge.NewFactory(
@@ -60,13 +60,13 @@ await auth.authorizedFetch('/records/note')
 
 Header 模式传入 `credential: () => existingLoginSDK.accessToken()`；凭证只在请求时读取，不进入浏览器存储。`login()` / `logout()` 跳转到配置的账号系统页面，刷新也由原登录 SDK 负责。客户端不会自动重放业务写入。
 
-Cookie 必须能随请求发送到 Runtime 所在域；跨域时还需配置 Runtime CORS 和凭证策略。浏览器配置中的 `allowed_origins` 必须与实际页面一致；携带 Cookie 的写请求必须提供匹配的 Origin。不同注册域不能靠配置读取彼此的 Cookie，应使用已有登录 SDK 的 Header 凭证方式。可参考 [同源浏览器示例](examples/browser/index.html)。
+Cookie 必须能随请求发送到 Runtime 所在域；跨域时还需配置 Runtime CORS 和凭证策略。浏览器配置中的 `allowed_origins` 必须与实际页面一致；携带 Cookie 的写请求必须提供匹配的 Origin。不同注册域不能靠配置读取彼此的 Cookie，应使用已有登录 SDK 的 Header 凭证方式。可参考 [同源浏览器示例](docs/examples/browser/index.html)。
 
 部署时把配置里的账号地址、应用 origin、应用 key 和角色替换为目标应用的实际值。`login_url` 必须填写已有账号页面实际支持的地址与回跳参数；只有存在可导航的注销页面时才配置可选的 `logout_url`，缺省时客户端明确拒绝注销调用；不要将只接受 POST 的退出 API 当作 GET 跳转页面。账号系统提供凭证，业务应用接入上述客户端后调用 `session()`，才会建立或恢复个人 Workspace。示例页和配置校验不等于已经完成目标业务应用的真实账号登录验收。
 
 ## 本地验证与发布
 
-这次同时修改了 SDK 与 Runtime 合同；源代码验证使用相邻项目，脚本会临时创建 Go workspace，结束后删除，不修改全局 Go 配置。
+源码验证始终使用各仓库锁定的已发布依赖，并显式设置 `GOWORK=off`；不会创建临时 Go workspace 或本地替换。
 
 ```sh
 make check
