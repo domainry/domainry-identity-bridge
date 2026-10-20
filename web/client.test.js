@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ExternalIdentityClient } from './client.js'
+import { ExternalIdentityClient, ExternalIdentityError } from './client.js'
 const configuration = { mode: 'external', session_path: '/auth/external/session', display_name: 'Accounts', login_url: 'https://accounts.example.com/login', logout_url: 'https://accounts.example.com/logout', credential: { location: 'header', name: 'Authorization', prefix: 'Bearer ' } }
 test('existing credential authenticates Runtime without storage or write retries', async () => {
   const calls = []
@@ -36,4 +36,31 @@ test('login works without a logout page and logout fails before changing credent
   assert.equal((await client.configuration()).login_url, configuration.login_url)
   await assert.rejects(client.logout(), /not configured/)
   assert.equal(cleared, false)
+})
+
+test('session requires canonical HTTP error fields and rejects legacy detail responses', async () => {
+  let sessionCalls = 0
+  const client = new ExternalIdentityClient({
+    runtimeURL: 'https://app.example.com',
+    fetch: async url => {
+      if (url.pathname.endsWith('/config')) return Response.json({ ...configuration, credential: { location: 'cookie' } })
+      sessionCalls++
+      return Response.json(sessionCalls === 1 ? {
+        code: 'identity.external.session_expired',
+        message: 'External session expired',
+        params: { provider: 'accounts' },
+        request_id: 'request-1',
+      } : {
+        code: 'legacy.error',
+        detail: 'old field',
+      }, { status: 401 })
+    },
+  })
+  await assert.rejects(client.session(), error => error instanceof ExternalIdentityError
+    && error.code === 'identity.external.session_expired'
+    && error.params.provider === 'accounts'
+    && error.requestID === 'request-1')
+  await assert.rejects(client.session(), error => error instanceof ExternalIdentityError
+    && error.code === 'identity.external.login_required'
+    && !error.message.includes('Legacy response'))
 })

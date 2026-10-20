@@ -24,6 +24,13 @@ export interface ExternalBrowserConfiguration {
   logout_url?: string
   credential: { location: 'cookie' | 'header'; name?: string; prefix?: string }
 }
+export declare class ExternalIdentityError extends Error {
+  readonly status: number
+  readonly code: string
+  readonly params?: Record<string, string>
+  readonly requestID: string
+  constructor(status: number, code: string, message: string, params?: Record<string, string>, requestID?: string)
+}
 export declare class ExternalIdentityClient {
   constructor(options: ExternalIdentityOptions)
   configuration(): Promise<ExternalBrowserConfiguration>

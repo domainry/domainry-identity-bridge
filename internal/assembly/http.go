@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	bridge "github.com/domainry/domainry-identity-bridge"
 	identity "github.com/domainry/domainry-identity-sdk"
@@ -88,17 +89,21 @@ func (a browserAdapter) Handler() http.Handler {
 		json.NewEncoder(w).Encode(public)
 	})
 	mux.HandleFunc("GET "+sessionPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		principal, ok := identity.PrincipalFromContext(r.Context())
 		if !ok || !principal.Known {
-			http.Error(w, "authentication required", 401)
+			httpresponse.WriteError(w, r, httpresponse.Failure{
+				Status: http.StatusUnauthorized, Code: "identity.external.login_required", Message: "External login is required.",
+			})
 			return
 		}
 		roles, err := a.binding.assignedRoles(r.Context(), principal.WorkspaceID, principal.UserID)
 		if err != nil {
-			http.Error(w, "external session unavailable", 503)
+			httpresponse.WriteError(w, r, httpresponse.Failure{
+				Status: http.StatusServiceUnavailable, Code: "identity.external.session_unavailable", Message: "External session is unavailable.", Cause: err,
+			})
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(browserSessionResponse{WorkspaceID: principal.WorkspaceID, SubjectID: principal.UserID, User: principal.User, Roles: roles, Permissions: principal.PermissionKeys(), AuthorizationRevision: principal.AuthorizationRevision, ExpiresAt: principal.AccessBundle.ExpiresAt, AccessBundle: principal.AccessBundle})
 	})

@@ -1,4 +1,34 @@
 /** Reuses an existing login authority. No token persistence or local sessions. */
+export class ExternalIdentityError extends Error {
+  constructor(status, code, message, params, requestID = '') {
+    super(message)
+    this.name = 'ExternalIdentityError'
+    this.status = status
+    this.code = code
+    this.params = params
+    this.requestID = requestID
+  }
+}
+
+function parseHTTPErrorResponse(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (typeof value.code !== 'string' || !value.code.trim() || typeof value.message !== 'string' || !value.message.trim() || typeof value.request_id !== 'string') return null
+  if (value.params !== undefined && (!value.params || typeof value.params !== 'object' || Array.isArray(value.params) || Object.values(value.params).some(item => typeof item !== 'string'))) return null
+  return {
+    code: value.code,
+    message: value.message,
+    ...(value.params === undefined ? {} : { params: value.params }),
+    request_id: value.request_id,
+  }
+}
+
+async function errorFrom(response, fallbackCode, fallbackMessage) {
+  const value = parseHTTPErrorResponse(await response.json().catch(() => undefined))
+  return value
+    ? new ExternalIdentityError(response.status, value.code, value.message, value.params, value.request_id)
+    : new ExternalIdentityError(response.status, fallbackCode, fallbackMessage)
+}
+
 export class ExternalIdentityClient {
   #options
   #fetch
@@ -14,7 +44,7 @@ export class ExternalIdentityClient {
   async configuration() {
     if (this.#config) return this.#config
     const response = await this.#fetch(new URL('auth/external/config', this.#base), { credentials: 'omit', redirect: 'error', cache: 'no-store' })
-    if (!response.ok) throw new Error('external login configuration unavailable')
+    if (!response.ok) throw await errorFrom(response, 'identity.external.configuration_unavailable', 'external login configuration unavailable')
     const config = await response.json()
     if (config.mode !== 'external' || config.session_path !== '/auth/external/session') throw new Error('unsupported external login configuration')
     for (const key of ['login_url', 'logout_url']) {
@@ -44,9 +74,11 @@ export class ExternalIdentityClient {
   async session() {
     const response = await this.authorizedFetch('/auth/external/session', { cache: 'no-store' })
     if (!response.ok) {
-      const error = new Error(response.status === 401 ? 'external login is required' : 'external session unavailable')
-      error.status = response.status
-      throw error
+      throw await errorFrom(
+        response,
+        response.status === 401 ? 'identity.external.login_required' : 'identity.external.session_unavailable',
+        response.status === 401 ? 'external login is required' : 'external session unavailable',
+      )
     }
     return response.json()
   }
