@@ -27,7 +27,7 @@ func (b *Binding) ReadAccessCredential(r *http.Request) (string, error) {
 	origin := r.Header.Get("Origin")
 	unsafe := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
 	if origin != "" && !includes(cfg.AllowedOrigins, origin) || cfg.Credential.Location == "cookie" && unsafe && origin == "" {
-		return "", &identity.Error{StatusCode: 403, Code: "identity.external_origin_denied"}
+		return "", &identity.Error{Class: identity.ErrorClassForbidden, Code: "identity.external_origin_denied"}
 	}
 	if cfg.Credential.Location == "cookie" {
 		var value string
@@ -39,7 +39,7 @@ func (b *Binding) ReadAccessCredential(r *http.Request) (string, error) {
 			}
 		}
 		if count > 1 {
-			return "", &identity.Error{StatusCode: 401, Code: "auth.token_invalid"}
+			return "", &identity.Error{Class: identity.ErrorClassForbidden, Code: "auth.token_invalid"}
 		}
 		return value, nil
 	}
@@ -48,7 +48,7 @@ func (b *Binding) ReadAccessCredential(r *http.Request) (string, error) {
 		return "", nil
 	}
 	if len(values) != 1 || !strings.HasPrefix(values[0], cfg.Credential.Prefix) {
-		return "", &identity.Error{StatusCode: 401, Code: "auth.token_invalid"}
+		return "", &identity.Error{Class: identity.ErrorClassForbidden, Code: "auth.token_invalid"}
 	}
 	return strings.TrimPrefix(values[0], cfg.Credential.Prefix), nil
 }

@@ -77,10 +77,10 @@ func (binding *Binding) Credentials() identity.CredentialManager    { return aut
 func (binding *Binding) Close(context.Context) error                { return nil }
 
 func unsupported() error {
-	return &identity.Error{StatusCode: http.StatusNotImplemented, Code: "identity.external_capability_unavailable"}
+	return &identity.Error{Class: identity.ErrorClassInternal, Code: "identity.external_capability_unavailable"}
 }
 func denied() error {
-	return &identity.Error{StatusCode: http.StatusForbidden, Code: "identity.external_scope_denied"}
+	return &identity.Error{Class: identity.ErrorClassForbidden, Code: "identity.external_scope_denied"}
 }
 
 func (binding *Binding) namespace() string {
