@@ -2,11 +2,10 @@ package moduleassembly
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-bridge/internal/persistence"
 	identity "github.com/domainry/domainry-identity-sdk"
@@ -22,11 +21,7 @@ type assignment struct {
 }
 
 func opaque(prefix string) (string, error) {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", err
-	}
-	return prefix + "_" + hex.EncodeToString(raw[:]), nil
+	return entityid.New(prefix)
 }
 
 func (binding *Binding) ResolvePersonalWorkspace(ctx context.Context, request bridge.PersonalWorkspaceRequest) (bridge.WorkspaceBinding, error) {
@@ -64,7 +59,7 @@ func (binding *Binding) ResolvePersonalWorkspace(ctx context.Context, request br
 			if !request.CreateIfMissing {
 				return bridge.ErrWorkspaceUnavailable
 			}
-			workspace, err := opaque("workspace")
+			workspace, err := opaque("ws")
 			if err != nil {
 				return err
 			}
@@ -72,7 +67,7 @@ func (binding *Binding) ResolvePersonalWorkspace(ctx context.Context, request br
 			if err != nil {
 				return err
 			}
-			result = ownership{Binding: bridge.WorkspaceBinding{InstallationID: request.InstallationID, ProviderKey: request.ProviderKey, ExternalSubjectID: request.ExternalSubjectID, WorkspaceID: workspace, UserID: user, Active: true}, User: identity.User{ID: user, Name: request.DisplayName, Email: request.Email, Status: "active"}}
+			result = ownership{Binding: bridge.WorkspaceBinding{InstallationID: request.InstallationID, ProviderKey: request.ProviderKey, ExternalSubjectID: request.ExternalSubjectID, WorkspaceID: workspace, UserID: user, Active: true}, User: identity.User{UserID: user, Name: request.DisplayName, Email: request.Email, Status: "active"}}
 			record, err := persistence.Encode(binding.namespace(), "owner", key, workspace, user, result)
 			if err != nil {
 				return err

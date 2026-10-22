@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/domainry/domainry-foundation/schemaownership"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/modulehost"
 	"github.com/domainry/domainry-orm/dialect"
@@ -20,6 +21,14 @@ import (
 )
 
 const stateTable = "_external_identity_state"
+
+func SchemaOwnership() []schemaownership.Table {
+	return []schemaownership.Table{{
+		Name: stateTable, Owner: "identity-bridge", Kind: schemaownership.KindState, WorkspaceScope: schemaownership.ScopeWorkspace,
+		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"id"}, UniqueKey: []string{"state_key"},
+		BoundedQueryPath: "namespace, kind and optional workspace scope", DeletionPolicy: "workspace or subject erasure removes external identity state",
+	}}
+}
 
 type Store struct {
 	DB       *sql.DB
@@ -50,7 +59,7 @@ func Open(ctx context.Context, handle identity.DatabaseHandle) (*Store, error) {
 }
 
 func stateTableDDL(renderer dialect.Renderer) (string, []any, error) {
-	return schema.NewTable(renderer, stateTable).Columns(
+	return schema.NewTableWithRequiredColumns(renderer, stateTable, schema.Column("id", schema.BigInt()).NotNull().AutoIncrement()).Columns(
 		schema.Column("state_key", schema.TextKey(64)).NotNull(),
 		schema.Column("namespace", schema.TextKey(64)).NotNull(),
 		schema.Column("kind", schema.TextKey(32)).NotNull(),
@@ -58,7 +67,7 @@ func stateTableDDL(renderer dialect.Renderer) (string, []any, error) {
 		schema.Column("subject_id", schema.TextKey(255)).NotNull(),
 		schema.Column("revision", schema.TextKey(64)).NotNull(),
 		schema.Column("payload", schema.LongText()).NotNull(),
-	).PrimaryKey("state_key").Build()
+	).PrimaryKey("id").Unique("state_key").Build()
 }
 
 func Key(parts ...string) string {

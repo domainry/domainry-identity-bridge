@@ -93,7 +93,7 @@ func (service *Service) Authenticate(ctx context.Context, credential string) (au
 		AuthorizationRevision: string(snapshot.AuthorizationRevision), AccessBundle: &snapshot,
 		OrgID: snapshot.Subject.OrgID, OrgScopeIDs: append([]string(nil), snapshot.Subject.OrgScopeIDs...),
 		SupportOrgID: snapshot.Subject.SupportOrgID, SupportOrgScopeIDs: append([]string(nil), snapshot.Subject.SupportOrgScopeIDs...),
-		User: authorization.User{ID: workspace.UserID, Name: subject.DisplayName, Email: subject.Email, Status: "active"},
+		User: authorization.User{UserID: workspace.UserID, Name: subject.DisplayName, Email: subject.Email, Status: "active"},
 	}
 	for _, id := range snapshot.Subject.ReportingScopeUserIDs {
 		principal.ReportingScopeUserIDs = append(principal.ReportingScopeUserIDs, string(id))

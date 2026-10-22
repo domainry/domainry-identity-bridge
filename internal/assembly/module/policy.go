@@ -148,7 +148,11 @@ func (binding *Binding) assignedRoles(ctx context.Context, workspace, user strin
 	for _, key := range assignment.RoleKeys {
 		for _, role := range catalog.Roles {
 			if role.Key == key {
-				roles = append(roles, identity.Role{ID: role.Key, Key: role.Key, Label: role.Name, Status: "active"})
+				projected, err := binding.projectRole(role)
+				if err != nil {
+					return nil, err
+				}
+				roles = append(roles, projected)
 			}
 		}
 	}

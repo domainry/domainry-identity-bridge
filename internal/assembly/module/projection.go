@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	"github.com/domainry/domainry-foundation/requestcontext"
 	identity "github.com/domainry/domainry-identity-sdk"
 )
@@ -44,7 +45,7 @@ func (adapter projection) FindUser(ctx context.Context, request identity.UserLoo
 		return identity.User{}, false, err
 	}
 	for _, user := range users {
-		if user.ID == string(request.UserID) {
+		if user.UserID == string(request.UserID) {
 			return user, true, nil
 		}
 	}
@@ -97,7 +98,11 @@ func (adapter projection) ListRoles(ctx context.Context, request identity.Projec
 	}
 	roles := []identity.Role{}
 	for _, role := range catalog.Roles {
-		roles = append(roles, identity.Role{ID: role.Key, Key: role.Key, Label: role.Name, Status: "active"})
+		projected, err := adapter.binding.projectRole(role)
+		if err != nil {
+			return nil, err
+		}
+		roles = append(roles, projected)
 	}
 	return roles, nil
 }
@@ -112,15 +117,15 @@ func (adapter projection) ListUserRoleAssignments(ctx context.Context, request i
 	}
 	result := []identity.UserRoleAssignment{}
 	for _, user := range users {
-		if request.UserID != "" && string(request.UserID) != user.ID {
+		if request.UserID != "" && string(request.UserID) != user.UserID {
 			continue
 		}
-		roles, err := adapter.binding.assignedRoles(ctx, workspace, user.ID)
+		roles, err := adapter.binding.assignedRoles(ctx, workspace, user.UserID)
 		if err != nil {
 			return nil, err
 		}
 		for _, role := range roles {
-			result = append(result, identity.UserRoleAssignment{UserID: user.ID, RoleID: role.ID, Source: "external_personal_owner"})
+			result = append(result, identity.UserRoleAssignment{UserID: user.UserID, RoleID: role.RoleID, Source: "external_personal_owner"})
 		}
 	}
 	return result, nil
@@ -162,7 +167,7 @@ func (binding *Binding) Resolve(ctx context.Context, request identity.PrincipalR
 		roles = assigned.RoleKeys
 		profile = owner.User
 	} else {
-		profile = identity.User{ID: user, Name: user, Status: "active", AccountType: "service"}
+		profile = identity.User{UserID: user, Name: user, Status: "active", AccountType: "service"}
 	}
 	if request.RoleKey != "" {
 		if !includes(roles, request.RoleKey) {
@@ -186,4 +191,14 @@ func (binding *Binding) Resolve(ctx context.Context, request identity.PrincipalR
 	}
 	principal.Permissions = principal.PermissionKeys()
 	return identity.PrincipalResolution{Principal: principal, AccessBundle: bundle}, nil
+}
+
+func (binding *Binding) projectRole(role identity.ProjectRoleDefinition) (identity.Role, error) {
+	roleID, err := entityid.Derive("role", "identity-bridge.project-role", binding.Config.InstallationID, binding.Config.ApplicationKey, role.Key)
+	if err != nil {
+		return identity.Role{}, err
+	}
+	// Bridge projects source-owned roles; there is no Identity role-table row
+	// whose numeric ID could be supplied here.
+	return identity.Role{RoleID: roleID, Key: role.Key, Label: role.Name, Status: "active"}, nil
 }
