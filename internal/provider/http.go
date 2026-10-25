@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domainry/domainry-foundation/telemetry"
 	"github.com/domainry/domainry-identity-bridge/internal/config"
 	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-bridge/internal/jsonpointer"
@@ -46,8 +47,9 @@ func New(cfg config.Provider, transport http.RoundTripper, lookupEnv func(string
 		headers.Set(name, reference.Prefix+secret)
 	}
 	timeout, _ := time.ParseDuration(cfg.Verification.Timeout)
+	client := telemetry.InstrumentHTTPClientWithOptions(&http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, "domainry.identity_bridge.provider", telemetry.HTTPClientInstrumentationOptions{DisableDiagnosticContent: true})
 	return &HTTP{key: cfg.Key, config: cfg.Verification, headers: headers, now: now,
-		client: &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		client: client,
 	}, nil
 }
 
@@ -63,6 +65,7 @@ func (provider *HTTP) Verify(ctx context.Context, credential string) (bridge.Ext
 		encoded, _ := json.Marshal(map[string]string{provider.config.Credential.Name: credential})
 		body = bytes.NewReader(encoded)
 	}
+	ctx = telemetry.WithHTTPClientOperation(ctx, "identity_bridge.credential.verify")
 	request, err := http.NewRequestWithContext(ctx, provider.config.Method, provider.config.Endpoint, body)
 	if err != nil {
 		return bridge.ExternalSubject{}, bridge.ErrProviderUnavailable
