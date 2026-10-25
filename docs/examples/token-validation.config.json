@@ -1,5 +1,5 @@
 {
-  "version": "domainry-identity-bridge-config-v1",
+  "version": "domainry-identity-bridge-config-v2",
   "installation_id": "example-installation",
   "application_key": "example-application",
   "provider": {
@@ -13,8 +13,6 @@
       "credential": { "location": "json", "name": "token" },
       "response": {
         "subject_id": "/data/user_id",
-        "display_name": "/data/email",
-        "email": "/data/email",
         "expires_at": "/data/expires_at",
         "expiry_format": "unix_seconds",
         "checks": [
@@ -23,9 +21,25 @@
           { "path": "/data/token_type", "equals": "access" }
         ]
       }
+    },
+    "profile": {
+      "kind": "http_profile",
+      "endpoint": "https://accounts.example.com/passport/inner/user/info",
+      "method": "GET",
+      "timeout": "3s",
+      "max_response_bytes": 65536,
+      "credential": { "location": "cookie", "name": "token" },
+      "response": {
+        "subject_id": "/data/user_id",
+        "display_name": "/data/user_name",
+        "email": "/data/email",
+        "checks": [
+          { "path": "/errCode", "equals": 0 }
+        ]
+      }
     }
   },
-  "personal_workspace": {
+  "workspace": {
     "mode": "per_user",
     "create_on_first_access": true,
     "name_template": "Personal workspace",

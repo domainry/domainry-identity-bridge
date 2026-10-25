@@ -16,21 +16,22 @@ import (
 	"github.com/domainry/domainry-identity-bridge/internal/jsonpointer"
 )
 
-const Version = "domainry-identity-bridge-config-v1"
+const Version = "domainry-identity-bridge-config-v2"
 
 type Config struct {
-	Browser           *Browser          `json:"browser,omitempty"`
-	Version           string            `json:"version"`
-	InstallationID    string            `json:"installation_id"`
-	ApplicationKey    string            `json:"application_key"`
-	Provider          Provider          `json:"provider"`
-	PersonalWorkspace PersonalWorkspace `json:"personal_workspace"`
-	ServiceSubjects   []ServiceSubject  `json:"service_subjects,omitempty"`
+	Browser         *Browser         `json:"browser,omitempty"`
+	Version         string           `json:"version"`
+	InstallationID  string           `json:"installation_id"`
+	ApplicationKey  string           `json:"application_key"`
+	Provider        Provider         `json:"provider"`
+	Workspace       Workspace        `json:"workspace"`
+	ServiceSubjects []ServiceSubject `json:"service_subjects,omitempty"`
 }
 
 type Provider struct {
 	Key          string       `json:"key"`
 	Verification Verification `json:"verification"`
+	Profile      *Profile     `json:"profile,omitempty"`
 }
 
 type Verification struct {
@@ -45,6 +46,15 @@ type Verification struct {
 }
 
 type Credential struct {
+	Location string                `json:"location"`
+	Name     string                `json:"name"`
+	Prefix   string                `json:"prefix,omitempty"`
+	Mirrors  []CredentialPlacement `json:"mirrors,omitempty"`
+}
+
+// CredentialPlacement repeats the same user credential in an additional
+// header or cookie when an upstream contract requires both transports.
+type CredentialPlacement struct {
 	Location string `json:"location"`
 	Name     string `json:"name"`
 	Prefix   string `json:"prefix,omitempty"`
@@ -70,12 +80,61 @@ type ResponseCheck struct {
 	Equals json.RawMessage `json:"equals"`
 }
 
-type PersonalWorkspace struct {
-	Mode                 string         `json:"mode"`
-	CreateOnFirstAccess  bool           `json:"create_on_first_access"`
-	NameTemplate         string         `json:"name_template"`
-	InitialRoleKeys      []string       `json:"initial_role_keys"`
-	ApplicationBootstrap map[string]any `json:"application_bootstrap,omitempty"`
+// Profile optionally enriches a successfully verified external subject from a
+// second provider endpoint. The returned subject ID must match the verified
+// token subject before mutable display fields are accepted.
+type Profile struct {
+	Kind             string                     `json:"kind"`
+	Endpoint         string                     `json:"endpoint"`
+	Method           string                     `json:"method"`
+	Timeout          string                     `json:"timeout"`
+	MaxResponseBytes int64                      `json:"max_response_bytes"`
+	Credential       Credential                 `json:"credential"`
+	ServiceHeaders   map[string]SecretReference `json:"service_headers,omitempty"`
+	Response         ProfileResponse            `json:"response"`
+}
+
+type ProfileResponse struct {
+	SubjectID   string          `json:"subject_id"`
+	DisplayName string          `json:"display_name,omitempty"`
+	Email       string          `json:"email,omitempty"`
+	Checks      []ResponseCheck `json:"checks"`
+}
+
+type Workspace struct {
+	Mode                 string                  `json:"mode"`
+	CreateOnFirstAccess  bool                    `json:"create_on_first_access"`
+	NameTemplate         string                  `json:"name_template"`
+	InitialRoleKeys      []string                `json:"initial_role_keys"`
+	ApplicationBootstrap map[string]any          `json:"application_bootstrap,omitempty"`
+	Selector             *WorkspaceSelector      `json:"selector,omitempty"`
+	Membership           *MembershipVerification `json:"membership,omitempty"`
+}
+
+// WorkspaceSelector names the untrusted request header that selects one
+// externally governed Workspace. MembershipVerification must authorize the
+// verified subject for the selected value before it reaches persistence.
+type WorkspaceSelector struct {
+	Location string `json:"location"`
+	Name     string `json:"name"`
+}
+
+type MembershipVerification struct {
+	Kind             string                     `json:"kind"`
+	Endpoint         string                     `json:"endpoint"`
+	Method           string                     `json:"method"`
+	Timeout          string                     `json:"timeout"`
+	MaxResponseBytes int64                      `json:"max_response_bytes"`
+	Credential       Credential                 `json:"credential"`
+	ServiceHeaders   map[string]SecretReference `json:"service_headers,omitempty"`
+	Response         MembershipResponse         `json:"response"`
+}
+
+type MembershipResponse struct {
+	Items         string          `json:"items"`
+	WorkspaceID   string          `json:"workspace_id"`
+	WorkspaceName string          `json:"workspace_name,omitempty"`
+	Checks        []ResponseCheck `json:"checks"`
 }
 
 type ServiceSubject struct {
@@ -85,9 +144,11 @@ type ServiceSubject struct {
 
 // WorkspaceNameFields are the only identity fields available to naming templates.
 type WorkspaceNameFields struct {
-	DisplayName string
-	SubjectID   string
-	ProviderKey string
+	DisplayName           string
+	SubjectID             string
+	ProviderKey           string
+	ExternalWorkspaceID   string
+	ExternalWorkspaceName string
 }
 
 func Load(reader io.Reader) (Config, error) {
@@ -128,58 +189,8 @@ func (value Config) Validate() error {
 	if verification.Kind != "http_introspection" {
 		return fmt.Errorf("verification.kind must be http_introspection")
 	}
-	u, err := url.Parse(verification.Endpoint)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" {
-		return fmt.Errorf("verification.endpoint must be an HTTPS URL without credentials, query, or fragment")
-	}
-	if verification.Method != http.MethodGet && verification.Method != http.MethodPost {
-		return fmt.Errorf("verification.method must be GET or POST")
-	}
-	timeout, err := time.ParseDuration(verification.Timeout)
-	if err != nil || timeout < time.Millisecond || timeout > 30*time.Second {
-		return fmt.Errorf("verification.timeout must be between 1ms and 30s")
-	}
-	if verification.MaxResponseBytes < 1 || verification.MaxResponseBytes > 1024*1024 {
-		return fmt.Errorf("verification.max_response_bytes must be between 1 and 1048576")
-	}
-	credential := verification.Credential
-	if strings.ContainsAny(credential.Prefix, "\r\n") {
-		return fmt.Errorf("credential prefix contains a newline")
-	}
-	switch credential.Location {
-	case "header", "cookie":
-		if !headerKey.MatchString(credential.Name) {
-			return fmt.Errorf("credential name must be a valid header or cookie name")
-		}
-		if credential.Location == "header" && !allowedHeader(credential.Name) {
-			return fmt.Errorf("credential header is reserved")
-		}
-		if credential.Location == "cookie" && credential.Prefix != "" {
-			return fmt.Errorf("cookie credentials do not support prefixes")
-		}
-	case "json":
-		if credential.Name == "" || strings.TrimSpace(credential.Name) != credential.Name || verification.Method != http.MethodPost {
-			return fmt.Errorf("JSON credential requires a non-empty field name and POST")
-		}
-		if credential.Prefix != "" {
-			return fmt.Errorf("JSON credentials do not support prefixes")
-		}
-	default:
-		return fmt.Errorf("credential.location must be header, cookie, or json")
-	}
-	seenHeaders := map[string]bool{}
-	for name, secret := range verification.ServiceHeaders {
-		key := strings.ToLower(name)
-		if !headerKey.MatchString(name) || !allowedHeader(name) || seenHeaders[key] {
-			return fmt.Errorf("service header name is reserved, invalid, or duplicated")
-		}
-		if credential.Location == "header" && strings.EqualFold(name, credential.Name) || credential.Location == "cookie" && key == "cookie" {
-			return fmt.Errorf("service header conflicts with the user credential")
-		}
-		if !environmentKey.MatchString(secret.Environment) || strings.ContainsAny(secret.Prefix, "\r\n") {
-			return fmt.Errorf("service header requires a valid environment reference and prefix")
-		}
-		seenHeaders[key] = true
+	if err := validateHTTP("verification", verification.Endpoint, verification.Method, verification.Timeout, verification.MaxResponseBytes, verification.Credential, verification.ServiceHeaders); err != nil {
+		return err
 	}
 	response := verification.Response
 	if response.SubjectID == "" || response.ExpiresAt == "" || len(response.Checks) == 0 {
@@ -193,23 +204,26 @@ func (value Config) Validate() error {
 	if response.ExpiryFormat != "unix_seconds" && response.ExpiryFormat != "rfc3339" {
 		return fmt.Errorf("response.expiry_format must be unix_seconds or rfc3339")
 	}
-	for _, check := range response.Checks {
-		if check.Path == "" {
-			return fmt.Errorf("response check path is required")
+	if err := validateChecks("response", response.Checks); err != nil {
+		return err
+	}
+	if profile := value.Provider.Profile; profile != nil {
+		if profile.Kind != "http_profile" {
+			return fmt.Errorf("profile.kind must be http_profile")
 		}
-		if _, err := jsonpointer.Parts(check.Path); err != nil {
-			return fmt.Errorf("invalid response check JSON pointer")
+		if err := validateHTTP("profile", profile.Endpoint, profile.Method, profile.Timeout, profile.MaxResponseBytes, profile.Credential, profile.ServiceHeaders); err != nil {
+			return err
 		}
-		decoder := json.NewDecoder(bytes.NewReader(check.Equals))
-		decoder.UseNumber()
-		var scalar any
-		if decoder.Decode(&scalar) != nil || decoder.Decode(new(any)) != io.EOF {
-			return fmt.Errorf("response check equals must be one JSON scalar")
+		if profile.Response.SubjectID == "" || profile.Response.DisplayName == "" && profile.Response.Email == "" || len(profile.Response.Checks) == 0 {
+			return fmt.Errorf("profile response requires subject_id, a display_name or email, and checks")
 		}
-		switch scalar.(type) {
-		case string, bool, json.Number:
-		default:
-			return fmt.Errorf("response check equals must be a string, boolean, or number")
+		for _, pointer := range []string{profile.Response.SubjectID, profile.Response.DisplayName, profile.Response.Email} {
+			if _, err := jsonpointer.Parts(pointer); err != nil {
+				return fmt.Errorf("invalid profile response JSON pointer")
+			}
+		}
+		if err := validateChecks("profile response", profile.Response.Checks); err != nil {
+			return err
 		}
 	}
 	if value.Browser != nil {
@@ -234,12 +248,45 @@ func (value Config) Validate() error {
 			keys[key] = true
 		}
 	}
-	workspace := value.PersonalWorkspace
-	if workspace.Mode != "per_user" {
-		return fmt.Errorf("personal_workspace.mode must be per_user; shared ownership is not implemented")
+	workspace := value.Workspace
+	if workspace.Mode != "per_user" && workspace.Mode != "per_external_group" {
+		return fmt.Errorf("workspace.mode must be per_user or per_external_group")
+	}
+	if workspace.Mode == "per_user" {
+		if workspace.Selector != nil || workspace.Membership != nil {
+			return fmt.Errorf("per_user Workspace cannot configure selector or membership")
+		}
+	} else {
+		if workspace.Selector == nil || workspace.Membership == nil {
+			return fmt.Errorf("per_external_group Workspace requires selector and membership")
+		}
+		if workspace.Selector.Location != "header" || !headerKey.MatchString(workspace.Selector.Name) || !allowedHeader(workspace.Selector.Name) || strings.EqualFold(workspace.Selector.Name, "Authorization") {
+			return fmt.Errorf("Workspace selector must use a non-reserved header")
+		}
+		if value.Browser != nil && value.Browser.Credential.Location == "header" && strings.EqualFold(value.Browser.Credential.Name, workspace.Selector.Name) {
+			return fmt.Errorf("Workspace selector conflicts with browser credential header")
+		}
+		membership := workspace.Membership
+		if membership.Kind != "http_membership_list" {
+			return fmt.Errorf("membership.kind must be http_membership_list")
+		}
+		if err := validateHTTP("membership", membership.Endpoint, membership.Method, membership.Timeout, membership.MaxResponseBytes, membership.Credential, membership.ServiceHeaders); err != nil {
+			return err
+		}
+		if membership.Response.Items == "" || membership.Response.WorkspaceID == "" || len(membership.Response.Checks) == 0 {
+			return fmt.Errorf("membership response requires items, workspace_id, and checks")
+		}
+		for _, pointer := range []string{membership.Response.Items, membership.Response.WorkspaceID, membership.Response.WorkspaceName} {
+			if _, err := jsonpointer.Parts(pointer); err != nil {
+				return fmt.Errorf("invalid membership response JSON pointer")
+			}
+		}
+		if err := validateChecks("membership response", membership.Response.Checks); err != nil {
+			return err
+		}
 	}
 	if len(workspace.InitialRoleKeys) == 0 {
-		return fmt.Errorf("personal_workspace.initial_role_keys is required")
+		return fmt.Errorf("workspace.initial_role_keys is required")
 	}
 	roles := map[string]bool{}
 	for _, role := range workspace.InitialRoleKeys {
@@ -251,8 +298,116 @@ func (value Config) Validate() error {
 	if strings.TrimSpace(workspace.NameTemplate) == "" || len(workspace.NameTemplate) > 512 {
 		return fmt.Errorf("workspace name template must be non-empty and at most 512 bytes")
 	}
-	if _, err := workspace.RenderName(WorkspaceNameFields{DisplayName: "Example", SubjectID: "subject", ProviderKey: "provider"}); err != nil {
+	if _, err := workspace.RenderName(WorkspaceNameFields{DisplayName: "Example", SubjectID: "subject", ProviderKey: "provider", ExternalWorkspaceID: "group", ExternalWorkspaceName: "Example group"}); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateHTTP(label, endpoint, method, timeoutValue string, maxResponseBytes int64, credential Credential, serviceHeaders map[string]SecretReference) error {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" {
+		return fmt.Errorf("%s.endpoint must be an HTTPS URL without credentials, query, or fragment", label)
+	}
+	if method != http.MethodGet && method != http.MethodPost {
+		return fmt.Errorf("%s.method must be GET or POST", label)
+	}
+	timeout, err := time.ParseDuration(timeoutValue)
+	if err != nil || timeout < time.Millisecond || timeout > 30*time.Second {
+		return fmt.Errorf("%s.timeout must be between 1ms and 30s", label)
+	}
+	if maxResponseBytes < 1 || maxResponseBytes > 1024*1024 {
+		return fmt.Errorf("%s.max_response_bytes must be between 1 and 1048576", label)
+	}
+	if err := validateCredentialPlacement(label, method, CredentialPlacement{Location: credential.Location, Name: credential.Name, Prefix: credential.Prefix}, true); err != nil {
+		return err
+	}
+	placements := append([]CredentialPlacement{{Location: credential.Location, Name: credential.Name, Prefix: credential.Prefix}}, credential.Mirrors...)
+	seenPlacements := map[string]bool{}
+	for index, placement := range placements {
+		if index > 0 {
+			if err := validateCredentialPlacement(label+" credential mirror", method, placement, false); err != nil {
+				return err
+			}
+		}
+		key := placement.Location + "\x00" + placement.Name
+		if placement.Location == "header" {
+			key = placement.Location + "\x00" + strings.ToLower(placement.Name)
+		}
+		if seenPlacements[key] {
+			return fmt.Errorf("%s credential placements must be unique", label)
+		}
+		seenPlacements[key] = true
+	}
+	seenHeaders := map[string]bool{}
+	for name, secret := range serviceHeaders {
+		key := strings.ToLower(name)
+		if !headerKey.MatchString(name) || !allowedHeader(name) || seenHeaders[key] {
+			return fmt.Errorf("%s service header name is reserved, invalid, or duplicated", label)
+		}
+		for _, placement := range placements {
+			if placement.Location == "header" && strings.EqualFold(name, placement.Name) || placement.Location == "cookie" && key == "cookie" {
+				return fmt.Errorf("%s service header conflicts with the user credential", label)
+			}
+		}
+		if !environmentKey.MatchString(secret.Environment) || strings.ContainsAny(secret.Prefix, "\r\n") {
+			return fmt.Errorf("%s service header requires a valid environment reference and prefix", label)
+		}
+		seenHeaders[key] = true
+	}
+	return nil
+}
+
+func validateCredentialPlacement(label, method string, credential CredentialPlacement, allowJSON bool) error {
+	if strings.ContainsAny(credential.Prefix, "\r\n") {
+		return fmt.Errorf("%s credential prefix contains a newline", label)
+	}
+	switch credential.Location {
+	case "header", "cookie":
+		if !headerKey.MatchString(credential.Name) {
+			return fmt.Errorf("%s credential name must be a valid header or cookie name", label)
+		}
+		if credential.Location == "header" && !allowedHeader(credential.Name) {
+			return fmt.Errorf("%s credential header is reserved", label)
+		}
+		if credential.Location == "cookie" && credential.Prefix != "" {
+			return fmt.Errorf("%s cookie credentials do not support prefixes", label)
+		}
+	case "json":
+		if !allowJSON {
+			return fmt.Errorf("%s must use header or cookie", label)
+		}
+		if credential.Name == "" || strings.TrimSpace(credential.Name) != credential.Name || method != http.MethodPost {
+			return fmt.Errorf("%s JSON credential requires a non-empty field name and POST", label)
+		}
+		if credential.Prefix != "" {
+			return fmt.Errorf("%s JSON credentials do not support prefixes", label)
+		}
+	default:
+		return fmt.Errorf("%s credential.location must be header, cookie, or json", label)
+	}
+	return nil
+}
+
+func validateChecks(label string, checks []ResponseCheck) error {
+	for _, check := range checks {
+		if check.Path == "" {
+			return fmt.Errorf("%s check path is required", label)
+		}
+		if _, err := jsonpointer.Parts(check.Path); err != nil {
+			return fmt.Errorf("invalid %s check JSON pointer", label)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(check.Equals))
+		decoder.UseNumber()
+		var scalar any
+		if decoder.Decode(&scalar) != nil || decoder.Decode(new(any)) != io.EOF {
+			return fmt.Errorf("%s check equals must be one JSON scalar", label)
+		}
+		switch scalar.(type) {
+		case string, bool, json.Number:
+		default:
+			return fmt.Errorf("%s check equals must be a string, boolean, or number", label)
+		}
 	}
 	return nil
 }
@@ -266,7 +421,7 @@ func allowedHeader(name string) bool {
 	}
 }
 
-func (value PersonalWorkspace) RenderName(fields WorkspaceNameFields) (string, error) {
+func (value Workspace) RenderName(fields WorkspaceNameFields) (string, error) {
 	tmpl, err := template.New("workspace").Option("missingkey=error").Parse(value.NameTemplate)
 	if err != nil {
 		return "", fmt.Errorf("invalid workspace name template")

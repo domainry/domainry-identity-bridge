@@ -16,9 +16,12 @@ import (
 	"time"
 
 	"github.com/domainry/domainry-foundation/requestcontext"
+	"github.com/domainry/domainry-identity-bridge/internal/application"
 	"github.com/domainry/domainry-identity-bridge/internal/config"
+	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/authorization/evaluator"
+	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
 	"github.com/domainry/domainry-identity-sdk/modulehost"
 	_ "modernc.org/sqlite"
 )
@@ -220,9 +223,9 @@ func TestConcurrentFirstLoginAndBootstrapRollback(t *testing.T) {
 	if count != 0 {
 		t.Fatal("orphan workspace")
 	}
-	h.db.QueryRow(`SELECT COUNT(*) FROM _external_identity_state WHERE kind='owner'`).Scan(&count)
+	h.db.QueryRow(`SELECT COUNT(*) FROM _external_identity_state WHERE kind IN ('workspace','member')`).Scan(&count)
 	if count != 0 {
-		t.Fatal("orphan owner")
+		t.Fatal("orphan external Workspace binding")
 	}
 	h.failCreate = false
 	const n = 20
@@ -256,6 +259,113 @@ func TestConcurrentFirstLoginAndBootstrapRollback(t *testing.T) {
 	}
 	if _, err := b.Service.Authenticate(t.Context(), "same"); err == nil {
 		t.Fatal("inactive workspace authenticated")
+	}
+}
+
+func TestExternalGroupMembersShareWorkspaceWithDistinctUsers(t *testing.T) {
+	h := openHost(t, filepath.Join(t.TempDir(), "bridge.db"))
+	raw, err := os.ReadFile("../../../docs/examples/personal.config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg config.Config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ApplicationKey = "app"
+	cfg.Workspace.Mode = "per_external_group"
+	cfg.Workspace.NameTemplate = "{{.ExternalWorkspaceName}}"
+	cfg.Workspace.Selector = &config.WorkspaceSelector{Location: "header", Name: "X-Group-ID"}
+	cfg.Workspace.Membership = &config.MembershipVerification{
+		Kind: "http_membership_list", Method: http.MethodPost, Timeout: "3s", MaxResponseBytes: 65536,
+		Credential: config.Credential{Location: "header", Name: "Authorization", Prefix: "Bearer ", Mirrors: []config.CredentialPlacement{{Location: "cookie", Name: "token"}}},
+		Response: config.MembershipResponse{
+			Items: "/data/groups", WorkspaceID: "/id", WorkspaceName: "/name",
+			Checks: []config.ResponseCheck{{Path: "/errCode", Equals: json.RawMessage(`0`)}},
+		},
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/verify":
+			json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"active": true, "token_type": "access", "audience": "example-application",
+				"subject": map[string]any{"id": credential, "name": credential}, "expires_at": time.Now().Add(time.Hour).Unix(),
+			}})
+		case "/groups":
+			cookie, cookieErr := r.Cookie("token")
+			if cookieErr != nil || cookie.Value != credential {
+				t.Errorf("membership credential was not mirrored to the token cookie")
+			}
+			groups := []map[string]any{}
+			switch credential {
+			case "alice":
+				groups = append(groups, map[string]any{"id": 42, "name": "Shared knowledge", "role": "owner"}, map[string]any{"id": 77, "name": "Other group", "role": "member"})
+			case "bob":
+				groups = append(groups, map[string]any{"id": "42", "name": "Shared knowledge", "role": "member"})
+			}
+			json.NewEncoder(w).Encode(map[string]any{"errCode": 0, "data": map[string]any{"groups": groups}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	cfg.Provider.Verification.Endpoint = server.URL + "/verify"
+	cfg.Provider.Verification.ServiceHeaders = nil
+	cfg.Workspace.Membership.Endpoint = server.URL + "/groups"
+	b, err := Open(t.Context(), cfg, identity.ApplicationRef{WorkspaceID: "installation", ApplicationKey: "app"}, identity.DatabaseHandle{Pool: h.db, Driver: "sqlite", ModuleMigrations: h, ExternalWorkspaces: h}, server.Client().Transport, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish(t, b)
+	a, err := b.Authenticate(application.WithSelectedWorkspace(t.Context(), "42"), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := b.Authenticate(application.WithSelectedWorkspace(t.Context(), "42"), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.WorkspaceID != bob.WorkspaceID || a.UserID == bob.UserID {
+		t.Fatalf("shared group mapping is wrong: alice=%+v bob=%+v", a, bob)
+	}
+	authn, err := httpmiddleware.New(b.PrincipalAuthenticator(), httpmiddleware.WithBindingCredential(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, sessionPath, nil)
+	request.Header.Set("Authorization", "Bearer bob")
+	request.Header.Set("X-Group-ID", "42")
+	response := httptest.NewRecorder()
+	authn.Authenticate(b.HTTPAdapters()[0].Handler()).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), bob.WorkspaceID) {
+		t.Fatalf("HTTP Workspace selection failed: status=%d body=%s", response.Code, response.Body.String())
+	}
+	missingSelector := httptest.NewRequest(http.MethodGet, sessionPath, nil)
+	missingSelector.Header.Set("Authorization", "Bearer bob")
+	deniedResponse := httptest.NewRecorder()
+	authn.Authenticate(b.HTTPAdapters()[0].Handler()).ServeHTTP(deniedResponse, missingSelector)
+	if deniedResponse.Code != http.StatusForbidden {
+		t.Fatalf("missing external Workspace selector status=%d", deniedResponse.Code)
+	}
+	other, err := b.Authenticate(application.WithSelectedWorkspace(t.Context(), "77"), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.WorkspaceID == a.WorkspaceID || other.UserID == a.UserID {
+		t.Fatal("the same user was not isolated across external groups")
+	}
+	if _, err := b.Authenticate(application.WithSelectedWorkspace(t.Context(), "77"), "bob"); !errors.Is(err, bridge.ErrWorkspaceMembership) {
+		t.Fatalf("non-member selected external group: %v", err)
+	}
+	ctx := identity.WithRequestIdentity(t.Context(), identity.RequestIdentity{Principal: a})
+	users, err := b.Projection().ListUsers(requestcontext.WithWorkspaceID(ctx, a.WorkspaceID), identity.ProjectionQuery{})
+	if err != nil || len(users) != 2 {
+		t.Fatalf("shared Workspace users=%+v err=%v", users, err)
+	}
+	if a.RoleKey != "personal_owner" || bob.RoleKey != "personal_owner" {
+		t.Fatal("external owner/member labels changed Domainry role assignment")
 	}
 }
 func TestUnpublishedRoleCannotLeaveWorkspace(t *testing.T) {

@@ -32,9 +32,22 @@ func TestTokenValidationCookieSessionUsesExistingContract(t *testing.T) {
 	cfg.Browser.Credential.Name = "deployment_cookie"
 	fixedNow := time.Now().UTC().Truncate(time.Second)
 	expiresAt := fixedNow.Add(time.Minute).Unix()
-	var calls atomic.Int64
+	var validationCalls atomic.Int64
+	var profileCalls atomic.Int64
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
+		if r.URL.Path == "/passport/inner/user/info" {
+			profileCalls.Add(1)
+			cookie, cookieErr := r.Cookie("token")
+			if r.Method != http.MethodGet || cookieErr != nil || cookie.Value != "valid-credential" || r.Header.Get("Authorization") != "" {
+				t.Error("profile request did not follow the configured Cookie protocol")
+				http.Error(w, "invalid request", 400)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"errCode": 0, "data": map[string]any{"user_id": int64(9007199254740993), "user_name": "Person", "email": "person@example.com"}})
+			return
+		}
+		validationCalls.Add(1)
 		var body map[string]string
 		if r.Method != "POST" || r.URL.Path != "/passport/token/validate" || r.Header.Get("Content-Type") != "application/json" ||
 			r.Header.Get("Cookie") != "" || r.Header.Get("Authorization") != "" ||
@@ -43,7 +56,7 @@ func TestTokenValidationCookieSessionUsesExistingContract(t *testing.T) {
 			http.Error(w, "invalid request", 400)
 			return
 		}
-		data := map[string]any{"valid": true, "user_id": int64(9007199254740993), "email": "person@example.com", "token_type": "access", "expires_at": expiresAt}
+		data := map[string]any{"valid": true, "user_id": int64(9007199254740993), "token_type": "access", "expires_at": expiresAt}
 		response := map[string]any{"errCode": 0, "errMsg": "success", "data": data}
 		switch body["token"] {
 		case "valid-credential":
@@ -69,6 +82,7 @@ func TestTokenValidationCookieSessionUsesExistingContract(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg.Provider.Verification.Endpoint = server.URL + "/passport/token/validate"
+	cfg.Provider.Profile.Endpoint = server.URL + "/passport/inner/user/info"
 	host := openHost(t, filepath.Join(t.TempDir(), "bridge.db"))
 	binding, err := Open(t.Context(), cfg, identity.ApplicationRef{WorkspaceID: "installation", ApplicationKey: identity.ApplicationKey(cfg.ApplicationKey)},
 		identity.DatabaseHandle{Pool: host.db, Driver: "sqlite", ModuleMigrations: host, ExternalWorkspaces: host}, server.Client().Transport, nil, func() time.Time { return fixedNow })
@@ -99,15 +113,19 @@ func TestTokenValidationCookieSessionUsesExistingContract(t *testing.T) {
 			WorkspaceID string    `json:"workspace_id"`
 			SubjectID   string    `json:"subject_id"`
 			ExpiresAt   time.Time `json:"expires_at"`
+			User        struct {
+				Name  string `json:"name"`
+				Email string `json:"email"`
+			} `json:"user"`
 		}
 		if err := json.Unmarshal(response.Body.Bytes(), &session); err != nil {
 			t.Fatal(err)
 		}
-		if session.WorkspaceID == "" || session.SubjectID == "" || session.ExpiresAt.Unix() != expiresAt || firstWorkspace != "" && session.WorkspaceID != firstWorkspace {
+		if session.WorkspaceID == "" || session.SubjectID == "" || session.User.Name != "Person" || session.User.Email != "person@example.com" || session.ExpiresAt.Unix() != expiresAt || firstWorkspace != "" && session.WorkspaceID != firstWorkspace {
 			t.Fatalf("invalid or unstable session: %+v", session)
 		}
 		firstWorkspace = session.WorkspaceID
-		owner, err := binding.ownerForUser(t.Context(), session.WorkspaceID, session.SubjectID)
+		owner, err := binding.memberForUser(t.Context(), session.WorkspaceID, session.SubjectID)
 		if err != nil || owner.Binding.ExternalSubjectID != "9007199254740993" {
 			t.Fatalf("provider user ID lost precision: %q, %v", owner.Binding.ExternalSubjectID, err)
 		}
@@ -123,7 +141,7 @@ func TestTokenValidationCookieSessionUsesExistingContract(t *testing.T) {
 	if err := host.db.QueryRow("SELECT COUNT(*) FROM host_workspaces").Scan(&count); err != nil || count != 1 {
 		t.Fatalf("rejected or repeated login allocated another Workspace: count=%d, %v", count, err)
 	}
-	if calls.Load() != 10 {
-		t.Fatalf("each request must reach the account authority: calls=%d", calls.Load())
+	if validationCalls.Load() != 10 || profileCalls.Load() != 2 {
+		t.Fatalf("unexpected authority calls: validation=%d profile=%d", validationCalls.Load(), profileCalls.Load())
 	}
 }

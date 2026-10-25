@@ -1,5 +1,5 @@
 {
-  "version": "domainry-identity-bridge-config-v1",
+  "version": "domainry-identity-bridge-config-v2",
   "installation_id": "example-installation",
   "application_key": "example-application",
   "provider": {
@@ -43,7 +43,7 @@
       }
     }
   },
-  "personal_workspace": {
+  "workspace": {
     "mode": "per_user",
     "create_on_first_access": true,
     "name_template": "Personal workspace",

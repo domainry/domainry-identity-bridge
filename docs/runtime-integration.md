@@ -1,6 +1,6 @@
 # Runtime 集成与验收
 
-实现链路为：外部账号系统验证 → Bridge 解析外部主体 → Runtime 宿主事务创建/复用个人 Workspace → Bridge 解析当前应用角色 → SDK Principal / AccessBundle → Runtime 业务鉴权。
+实现链路为：外部账号系统验证 → Bridge 解析外部主体 → 可选的外部 Workspace 成员关系校验 → Runtime 宿主事务创建/复用 Workspace 和独立成员用户 → Bridge 解析当前应用角色 → SDK Principal / AccessBundle → Runtime 业务鉴权。
 
 ## 实现位置
 
@@ -8,7 +8,7 @@
 | --- | --- |
 | identity-bridge | 提供方配置、验证、持久归属、用户投影、角色与策略、浏览器客户端 |
 | identity-sdk | external factory、认证入口扩展、凭证传输扩展、宿主事务接口、组织契约 |
-| runtime | 外部安装初始化、个人空间与业务 bootstrap、HTTP 入口、后台 Workspace 传递 |
+| runtime | 外部安装初始化、Workspace 与业务 bootstrap、HTTP 入口、后台 Workspace 传递 |
 | plane | `config/modules.json` 外部模式、两个组合模板、交付清单与依赖收敛 |
 
 Runtime 的 `pkg/runtimehost` 生产依赖检查不包含 `domainry-identity/` 实现包。组织交付契约移至 SDK，原 Identity 公共包保留别名以兼容现有使用方。模块模式与 SaaS 模式仍沿用原有认证入口。
@@ -30,9 +30,9 @@ Runtime 的 `pkg/runtimehost` 生产依赖检查不包含 `domainry-identity/` �
 
 ## 当前能力边界
 
-`per_user` 是唯一 Workspace 策略。个人用户不能选企业共享空间，不能用外部响应中的角色、Workspace ID 或权限字段授予内部权限。
+Workspace 策略包括 `per_user` 与 `per_external_group`。共享模式的 selector 只是候选外部组 ID，必须由配置的成员接口基于当前凭据确认；外部响应中的角色和权限字段不能授予内部权限。
 
-个人角色和配置的服务角色必须是应用发布的明确角色。角色定义变更会改变授权 revision，后续请求读取当前目录。已分配角色不会被每次登录的初始配置覆盖。
+用户角色和配置的服务角色必须是应用发布的明确角色。角色定义变更会改变授权 revision，后续请求读取当前目录。已分配角色不会被每次登录的初始配置覆盖。
 
 HTTP 请求每次向外部接口验真；Bridge 不另造长期登录态，也不签发 refresh token。实际退出和撤销语义取决于账号系统：如果原系统退出只清除 Cookie，已复制的 access token 会按原有效期存续。此模块不把清 Cookie 描述为全局令牌撤销。
 
@@ -53,14 +53,13 @@ HTTP 请求每次向外部接口验真；Bridge 不另造长期登录态，也�
   "data": {
     "valid": true,
     "user_id": 9007199254740993,
-    "email": "person@example.com",
     "token_type": "access",
     "expires_at": 1900000000
   }
 }
 ```
 
-可用 [Token 校验配置](examples/token-validation.config.json) 对接，部署时填入实际 HTTPS 地址和业务应用配置。没有额外服务签名头；Cookie 名称、JSON 字段名和响应路径均由配置决定。该接口没有姓名字段，默认使用返回的邮箱作为显示名称，不杜撰字段或增加一次用户信息请求。
+当前账号服务的校验响应不包含姓名或邮箱；资料由受认证的 `GET /passport/inner/user/info` 返回 `user_id/user_name/email`。可用 [Token 校验配置](examples/token-validation.config.json) 对接：先用 JSON 凭证验 Token，再用 Cookie 凭证读取 Profile。Bridge 强制两个响应的 `user_id` 完全一致后才更新显示名称和邮箱，不接受浏览器直接提交的资料字段。
 
 账号服务验证 Token、查询用户并判断可用性；Bridge 只接受 `errCode=0`、`valid=true`、`token_type=access` 且尚未过期的响应。账号禁用或 Token 失效后，后续请求不会继续使用之前成功的结果。权限仍由内部应用角色决定。
 

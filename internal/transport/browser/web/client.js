@@ -54,6 +54,12 @@ export class ExternalIdentityClient {
     }
     if (!['header', 'cookie'].includes(config.credential?.location)) throw new Error('external browser credential is not configured')
     if (config.credential.location === 'header' && !this.#options.credential) throw new Error('existing login credential callback is required')
+    if (!['per_user', 'per_external_group'].includes(config.workspace_mode)) throw new Error('unsupported external Workspace mode')
+    if (config.workspace_mode === 'per_external_group') {
+      if (config.workspace_selector?.location !== 'header' || !config.workspace_selector.name) throw new Error('external Workspace selector is not configured')
+	  if (config.workspaces_path !== '/auth/external/workspaces') throw new Error('external Workspace discovery is not configured')
+      if (!this.#options.workspace) throw new Error('external Workspace callback is required')
+    }
     this.#config = config
     return config
   }
@@ -67,6 +73,11 @@ export class ExternalIdentityClient {
       const credential = await this.#options.credential()
       if (!credential) throw new Error('external login is required')
       headers.set(config.credential.name, (config.credential.prefix || '') + credential)
+    }
+    if (config.workspace_mode === 'per_external_group') {
+      const workspace = await this.#options.workspace()
+      if (typeof workspace !== 'string' || !workspace.trim() || workspace !== workspace.trim()) throw new Error('external Workspace selection is required')
+      headers.set(config.workspace_selector.name, workspace)
     }
     // Reauthentication/refresh remains with the provider; never replay a write.
     return this.#fetch(url, { ...init, headers, credentials: config.credential.location === 'cookie' ? 'include' : 'omit', redirect: 'error' })
@@ -82,6 +93,28 @@ export class ExternalIdentityClient {
     }
     return response.json()
   }
+	async workspaces() {
+	  const config = await this.configuration()
+	  if (config.workspace_mode !== 'per_external_group') return []
+	  const headers = new Headers()
+	  if (config.credential.location === 'header') {
+		const credential = await this.#options.credential()
+		if (!credential) throw new Error('external login is required')
+		headers.set(config.credential.name, (config.credential.prefix || '') + credential)
+	  }
+	  const response = await this.#fetch(new URL(config.workspaces_path.slice(1), this.#base), {
+		headers,
+		credentials: config.credential.location === 'cookie' ? 'include' : 'omit',
+		redirect: 'error',
+		cache: 'no-store',
+	  })
+	  if (!response.ok) {
+		throw await errorFrom(response, response.status === 401 ? 'identity.external.login_required' : 'identity.external.workspaces_unavailable', response.status === 401 ? 'external login is required' : 'external Workspaces unavailable')
+	  }
+	  const value = await response.json()
+	  if (!Array.isArray(value) || value.some(item => !item || typeof item.id !== 'string' || !item.id.trim() || item.id !== item.id.trim() || (item.name !== undefined && typeof item.name !== 'string'))) throw new Error('invalid external Workspace response')
+	  return value
+	}
   async login() {
     const config = await this.configuration()
     ;(this.#options.redirect || ((url) => globalThis.location.assign(url)))(config.login_url)

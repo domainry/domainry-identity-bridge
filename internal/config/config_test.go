@@ -52,10 +52,10 @@ func TestConfigurationRejectsIncompleteAndAmbiguousTrust(t *testing.T) {
 			c.Provider.Verification.Method = "GET"
 			c.Provider.Verification.Credential.Location = "json"
 		}},
-		{"shared ownership", func(c *config.Config) { c.PersonalWorkspace.Mode = "per_team" }},
-		{"missing roles", func(c *config.Config) { c.PersonalWorkspace.InitialRoleKeys = nil }},
-		{"duplicate roles", func(c *config.Config) { c.PersonalWorkspace.InitialRoleKeys = []string{"owner", "owner"} }},
-		{"unknown name variable", func(c *config.Config) { c.PersonalWorkspace.NameTemplate = "{{.Password}}" }},
+		{"shared ownership", func(c *config.Config) { c.Workspace.Mode = "per_team" }},
+		{"missing roles", func(c *config.Config) { c.Workspace.InitialRoleKeys = nil }},
+		{"duplicate roles", func(c *config.Config) { c.Workspace.InitialRoleKeys = []string{"owner", "owner"} }},
+		{"unknown name variable", func(c *config.Config) { c.Workspace.NameTemplate = "{{.Password}}" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := example(t)
@@ -86,13 +86,93 @@ func TestNamesAndProviderFieldsAreConfiguration(t *testing.T) {
 	cfg.Provider.Verification.Endpoint = "https://identity.example.net/validate-session"
 	cfg.Provider.Verification.Credential = config.Credential{Location: "cookie", Name: "custom_session"}
 	cfg.Provider.Verification.Response.SubjectID = "/result/users/0/account~1id"
-	cfg.PersonalWorkspace.NameTemplate = "{{.DisplayName}} / {{.SubjectID}}"
-	cfg.PersonalWorkspace.InitialRoleKeys = []string{"project_user"}
+	cfg.Workspace.NameTemplate = "{{.DisplayName}} / {{.SubjectID}}"
+	cfg.Workspace.InitialRoleKeys = []string{"project_user"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	name, err := cfg.PersonalWorkspace.RenderName(config.WorkspaceNameFields{DisplayName: "Alex", SubjectID: "42"})
+	name, err := cfg.Workspace.RenderName(config.WorkspaceNameFields{DisplayName: "Alex", SubjectID: "42"})
 	if err != nil || name != "Alex / 42" {
 		t.Fatalf("name=%q err=%v", name, err)
+	}
+}
+
+func TestExternalGroupWorkspaceRequiresBoundedMembershipVerification(t *testing.T) {
+	cfg := example(t)
+	cfg.Workspace.Mode = "per_external_group"
+	cfg.Workspace.NameTemplate = "{{.ExternalWorkspaceName}} knowledge"
+	cfg.Workspace.Selector = &config.WorkspaceSelector{Location: "header", Name: "X-Group-ID"}
+	cfg.Workspace.Membership = &config.MembershipVerification{
+		Kind: "http_membership_list", Endpoint: "https://accounts.example.net/groups", Method: "POST", Timeout: "3s", MaxResponseBytes: 65536,
+		Credential: config.Credential{Location: "header", Name: "Authorization", Prefix: "Bearer ", Mirrors: []config.CredentialPlacement{{Location: "cookie", Name: "token"}}},
+		Response: config.MembershipResponse{
+			Items: "/data/groups", WorkspaceID: "/group_id", WorkspaceName: "/name",
+			Checks: []config.ResponseCheck{{Path: "/errCode", Equals: json.RawMessage(`0`)}},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	name, err := cfg.Workspace.RenderName(config.WorkspaceNameFields{ExternalWorkspaceName: "Research"})
+	if err != nil || name != "Research knowledge" {
+		t.Fatalf("name=%q err=%v", name, err)
+	}
+	for _, mutate := range []func(*config.Config){
+		func(c *config.Config) { c.Workspace.Selector = nil },
+		func(c *config.Config) { c.Workspace.Membership = nil },
+		func(c *config.Config) { c.Workspace.Selector.Name = "Authorization" },
+		func(c *config.Config) { c.Workspace.Membership.Endpoint = "http://accounts.example.net/groups" },
+		func(c *config.Config) { c.Workspace.Membership.Response.Items = "/bad~2pointer" },
+		func(c *config.Config) { c.Workspace.Membership.Response.Checks = nil },
+		func(c *config.Config) {
+			c.Workspace.Membership.Credential.Mirrors = []config.CredentialPlacement{{Location: "json", Name: "token"}}
+		},
+		func(c *config.Config) {
+			c.Workspace.Membership.Credential.Mirrors = []config.CredentialPlacement{{Location: "header", Name: "authorization", Prefix: "Bearer "}}
+		},
+	} {
+		candidate := cfg
+		selector := *cfg.Workspace.Selector
+		membership := *cfg.Workspace.Membership
+		candidate.Workspace.Selector = &selector
+		candidate.Workspace.Membership = &membership
+		mutate(&candidate)
+		if err := candidate.Validate(); err == nil {
+			t.Fatal("invalid external group configuration was accepted")
+		}
+	}
+}
+
+func TestProfileEnrichmentRequiresBoundedSubjectBinding(t *testing.T) {
+	validProfile := func() *config.Profile {
+		return &config.Profile{
+			Kind: "http_profile", Endpoint: "https://accounts.example.net/passport/inner/user/info", Method: "GET", Timeout: "3s", MaxResponseBytes: 65536,
+			Credential: config.Credential{Location: "cookie", Name: "token"},
+			Response: config.ProfileResponse{
+				SubjectID: "/data/user_id", DisplayName: "/data/user_name", Email: "/data/email",
+				Checks: []config.ResponseCheck{{Path: "/errCode", Equals: json.RawMessage(`0`)}},
+			},
+		}
+	}
+	cfg := example(t)
+	cfg.Provider.Profile = validProfile()
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*config.Profile){
+		func(profile *config.Profile) { profile.Kind = "unimplemented" },
+		func(profile *config.Profile) { profile.Endpoint = "http://accounts.example.net/profile" },
+		func(profile *config.Profile) { profile.Response.SubjectID = "" },
+		func(profile *config.Profile) { profile.Response.DisplayName, profile.Response.Email = "", "" },
+		func(profile *config.Profile) { profile.Response.Checks = nil },
+		func(profile *config.Profile) { profile.Response.Email = "/bad~2pointer" },
+		func(profile *config.Profile) { profile.Credential = config.Credential{Location: "json", Name: "token"} },
+	} {
+		candidate := example(t)
+		candidate.Provider.Profile = validProfile()
+		mutate(candidate.Provider.Profile)
+		if err := candidate.Validate(); err == nil {
+			t.Fatal("invalid profile configuration was accepted")
+		}
 	}
 }

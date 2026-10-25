@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	externalConfigPath  = "/auth/external/config"
-	externalSessionPath = "/auth/external/session"
-	externalClientPath  = "/auth/external/client.js"
+	externalConfigPath     = "/auth/external/config"
+	externalSessionPath    = "/auth/external/session"
+	externalWorkspacesPath = "/auth/external/workspaces"
+	externalClientPath     = "/auth/external/client.js"
 )
 
 type browserCredentialResponse struct {
@@ -20,14 +21,27 @@ type browserCredentialResponse struct {
 	Prefix   string `json:"prefix,omitempty"`
 }
 
+type browserWorkspaceSelectorResponse struct {
+	Location string `json:"location"`
+	Name     string `json:"name"`
+}
+
 type browserConfigResponse struct {
-	Mode           string                     `json:"mode"`
-	SessionPath    string                     `json:"session_path"`
-	ApplicationKey string                     `json:"application_key"`
-	DisplayName    string                     `json:"display_name,omitempty"`
-	LoginURL       string                     `json:"login_url,omitempty"`
-	LogoutURL      *string                    `json:"logout_url,omitempty"`
-	Credential     *browserCredentialResponse `json:"credential,omitempty"`
+	Mode              string                            `json:"mode"`
+	SessionPath       string                            `json:"session_path"`
+	WorkspacesPath    string                            `json:"workspaces_path,omitempty"`
+	ApplicationKey    string                            `json:"application_key"`
+	DisplayName       string                            `json:"display_name,omitempty"`
+	LoginURL          string                            `json:"login_url,omitempty"`
+	LogoutURL         *string                           `json:"logout_url,omitempty"`
+	Credential        *browserCredentialResponse        `json:"credential,omitempty"`
+	WorkspaceMode     string                            `json:"workspace_mode"`
+	WorkspaceSelector *browserWorkspaceSelectorResponse `json:"workspace_selector,omitempty"`
+}
+
+type browserWorkspaceResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 type browserSessionResponse struct {
@@ -42,13 +56,14 @@ type browserSessionResponse struct {
 }
 
 func externalAdapterRoutes() []modulehttp.Route {
-	routes := make([]modulehttp.Route, 0, 3)
+	routes := make([]modulehttp.Route, 0, 4)
 	for _, value := range []struct {
 		key, path string
 		strategy  actioncontract.AuthorizationStrategy
 	}{
 		{"config", externalConfigPath, actioncontract.AuthorizationAnonymous},
 		{"client", externalClientPath, actioncontract.AuthorizationAnonymous},
+		{"workspaces", externalWorkspacesPath, actioncontract.AuthorizationAnonymous},
 		{"session", externalSessionPath, actioncontract.AuthorizationAuthenticated},
 	} {
 		routes = append(routes, modulehttp.Route{Action: actioncontract.ActionDefinition{

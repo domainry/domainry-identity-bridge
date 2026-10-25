@@ -9,6 +9,7 @@ check:
 	GOWORK=off go run ./cmd/identity-bridge -config docs/examples/personal.config.json
 	GOWORK=off go run ./cmd/identity-bridge -config docs/examples/browser.config.json
 	GOWORK=off go run ./cmd/identity-bridge -config docs/examples/token-validation.config.json
+	GOWORK=off go run ./cmd/identity-bridge -config docs/examples/external-group.config.json
 	node --test internal/transport/browser/web/client.test.js
 
 integration-check:

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ExternalIdentityClient, ExternalIdentityError } from './client.js'
-const configuration = { mode: 'external', session_path: '/auth/external/session', display_name: 'Accounts', login_url: 'https://accounts.example.com/login', logout_url: 'https://accounts.example.com/logout', credential: { location: 'header', name: 'Authorization', prefix: 'Bearer ' } }
+const configuration = { mode: 'external', session_path: '/auth/external/session', workspace_mode: 'per_user', display_name: 'Accounts', login_url: 'https://accounts.example.com/login', logout_url: 'https://accounts.example.com/logout', credential: { location: 'header', name: 'Authorization', prefix: 'Bearer ' } }
 test('existing credential authenticates Runtime without storage or write retries', async () => {
   const calls = []
   const client = new ExternalIdentityClient({ runtimeURL: 'https://app.example.com', credential: () => 'existing-token', fetch: async (url, init) => { calls.push([url, init]); return url.pathname.endsWith('/config') ? Response.json(configuration) : new Response('', { status: 401 }) } })
@@ -25,6 +25,40 @@ test('cookie mode never exposes cookie and redirects login/logout to configured 
   await client.login(); await client.logout()
   assert.deepEqual(redirects, [configuration.login_url, configuration.logout_url])
   assert.equal(cleared, true)
+})
+
+test('external group mode sends the selected Workspace separately from the provider credential', async () => {
+  let request
+  const client = new ExternalIdentityClient({
+    runtimeURL: 'https://app.example.com',
+    credential: () => 'existing-token',
+    workspace: () => 'team-42',
+    fetch: async (url, init) => {
+	  if (url.pathname.endsWith('/config')) return Response.json({ ...configuration, workspace_mode: 'per_external_group', workspaces_path: '/auth/external/workspaces', workspace_selector: { location: 'header', name: 'X-Team-ID' } })
+      request = init
+      return new Response(null, { status: 204 })
+    },
+  })
+  await client.authorizedFetch('/records/note')
+  assert.equal(request.headers.get('Authorization'), 'Bearer existing-token')
+  assert.equal(request.headers.get('X-Team-ID'), 'team-42')
+})
+
+test('external group discovery authenticates without sending an unverified Workspace selector', async () => {
+	let request
+	const client = new ExternalIdentityClient({
+	  runtimeURL: 'https://app.example.com',
+	  credential: () => 'existing-token',
+	  workspace: () => 'team-42',
+	  fetch: async (url, init) => {
+		if (url.pathname.endsWith('/config')) return Response.json({ ...configuration, workspace_mode: 'per_external_group', workspaces_path: '/auth/external/workspaces', workspace_selector: { location: 'header', name: 'X-Team-ID' } })
+		request = init
+		return Response.json([{ id: 'team-42', name: 'Design' }])
+	  },
+	})
+	assert.deepEqual(await client.workspaces(), [{ id: 'team-42', name: 'Design' }])
+	assert.equal(request.headers.get('Authorization'), 'Bearer existing-token')
+	assert.equal(request.headers.has('X-Team-ID'), false)
 })
 
 test('login works without a logout page and logout fails before changing credentials', async () => {

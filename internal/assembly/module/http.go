@@ -2,11 +2,14 @@ package moduleassembly
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
+	"github.com/domainry/domainry-identity-bridge/internal/application"
+	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	browser "github.com/domainry/domainry-identity-bridge/internal/transport/browser"
 	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/httpmiddleware"
@@ -16,6 +19,33 @@ const discoveryPath = externalConfigPath
 const sessionPath = externalSessionPath
 
 func (b *Binding) ReadAccessCredential(r *http.Request) (string, error) {
+	if r == nil {
+		return "", &identity.Error{Class: identity.ErrorClassForbidden, Code: "auth.token_invalid"}
+	}
+	credential, err := b.readAccessCredential(r)
+	if err != nil {
+		return "", err
+	}
+	if b.Config.Workspace.Mode != "per_external_group" {
+		return credential, nil
+	}
+	selector := b.Config.Workspace.Selector
+	values := r.Header.Values(selector.Name)
+	if len(values) != 1 {
+		return "", &identity.Error{Class: identity.ErrorClassForbidden, Code: "identity.external_workspace_denied"}
+	}
+	selected := strings.TrimSpace(values[0])
+	if selected == "" || selected != values[0] || len(selected) > 512 || strings.ContainsAny(selected, "\x00\r\n") {
+		return "", &identity.Error{Class: identity.ErrorClassForbidden, Code: "identity.external_workspace_denied"}
+	}
+	// RequestCredentialBinding predates external Workspace selection. Updating
+	// this request's context preserves the raw provider token while carrying the
+	// untrusted selector to this Binding's membership verifier.
+	*r = *r.WithContext(application.WithSelectedWorkspace(r.Context(), selected))
+	return credential, nil
+}
+
+func (b *Binding) readAccessCredential(r *http.Request) (string, error) {
 	if b.Config.Browser == nil {
 		token, ok := httpmiddleware.BearerToken(r)
 		if !ok {
@@ -75,7 +105,10 @@ func (a browserAdapter) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		browser := a.binding.Config.Browser
-		public := browserConfigResponse{Mode: "external", SessionPath: sessionPath, ApplicationKey: a.binding.Config.ApplicationKey}
+		public := browserConfigResponse{Mode: "external", SessionPath: sessionPath, ApplicationKey: a.binding.Config.ApplicationKey, WorkspaceMode: a.binding.Config.Workspace.Mode}
+		if a.binding.Config.Workspace.Mode == "per_external_group" {
+			public.WorkspacesPath = externalWorkspacesPath
+		}
 		if browser != nil {
 			public.DisplayName = browser.DisplayName
 			public.LoginURL = browser.LoginURL
@@ -86,7 +119,39 @@ func (a browserAdapter) Handler() http.Handler {
 				public.Credential.Prefix = browser.Credential.Prefix
 			}
 		}
+		if selector := a.binding.Config.Workspace.Selector; selector != nil {
+			public.WorkspaceSelector = &browserWorkspaceSelectorResponse{Location: selector.Location, Name: selector.Name}
+		}
 		json.NewEncoder(w).Encode(public)
+	})
+	mux.HandleFunc("GET "+externalWorkspacesPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		credential, err := a.binding.readAccessCredential(r)
+		if err != nil || credential == "" {
+			httpresponse.WriteError(w, r, httpresponse.Failure{Status: http.StatusUnauthorized, Code: "identity.external.login_required", Message: "External login is required.", Cause: err})
+			return
+		}
+		workspaces, err := a.binding.Service.ExternalWorkspaces(r.Context(), credential)
+		if err != nil {
+			status := http.StatusServiceUnavailable
+			code := "identity.external.workspaces_unavailable"
+			message := "External Workspaces are unavailable."
+			if errors.Is(err, bridge.ErrCredentialRejected) {
+				status = http.StatusUnauthorized
+				code = "identity.external.login_required"
+				message = "External login is required."
+			} else if errors.Is(err, bridge.ErrProviderResponse) {
+				status = http.StatusBadGateway
+			}
+			httpresponse.WriteError(w, r, httpresponse.Failure{Status: status, Code: code, Message: message, Cause: err})
+			return
+		}
+		response := make([]browserWorkspaceResponse, 0, len(workspaces))
+		for _, workspace := range workspaces {
+			response = append(response, browserWorkspaceResponse{ID: workspace.ExternalWorkspaceID, Name: workspace.DisplayName})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
 	})
 	mux.HandleFunc("GET "+sessionPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

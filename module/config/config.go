@@ -15,10 +15,14 @@ type Config = internalconfig.Config
 type Provider = internalconfig.Provider
 type Verification = internalconfig.Verification
 type Credential = internalconfig.Credential
+type CredentialPlacement = internalconfig.CredentialPlacement
 type SecretReference = internalconfig.SecretReference
 type Response = internalconfig.Response
 type ResponseCheck = internalconfig.ResponseCheck
-type PersonalWorkspace = internalconfig.PersonalWorkspace
+type Workspace = internalconfig.Workspace
+type WorkspaceSelector = internalconfig.WorkspaceSelector
+type MembershipVerification = internalconfig.MembershipVerification
+type MembershipResponse = internalconfig.MembershipResponse
 type ServiceSubject = internalconfig.ServiceSubject
 type WorkspaceNameFields = internalconfig.WorkspaceNameFields
 

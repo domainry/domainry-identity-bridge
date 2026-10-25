@@ -26,6 +26,7 @@ type HTTP struct {
 	client  *http.Client
 	headers http.Header
 	now     func() time.Time
+	profile *Profile
 }
 
 func New(cfg config.Provider, transport http.RoundTripper, lookupEnv func(string) (string, bool), now func() time.Time) (*HTTP, error) {
@@ -48,9 +49,15 @@ func New(cfg config.Provider, transport http.RoundTripper, lookupEnv func(string
 	}
 	timeout, _ := time.ParseDuration(cfg.Verification.Timeout)
 	client := telemetry.InstrumentHTTPClientWithOptions(&http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, "domainry.identity_bridge.provider", telemetry.HTTPClientInstrumentationOptions{DisableDiagnosticContent: true})
-	return &HTTP{key: cfg.Key, config: cfg.Verification, headers: headers, now: now,
-		client: client,
-	}, nil
+	var profile *Profile
+	if cfg.Profile != nil {
+		profileValue, profileErr := NewProfile(*cfg.Profile, transport, lookupEnv)
+		if profileErr != nil {
+			return nil, profileErr
+		}
+		profile = profileValue
+	}
+	return &HTTP{key: cfg.Key, config: cfg.Verification, headers: headers, now: now, client: client, profile: profile}, nil
 }
 
 func (provider *HTTP) Verify(ctx context.Context, credential string) (bridge.ExternalSubject, error) {
@@ -72,17 +79,10 @@ func (provider *HTTP) Verify(ctx context.Context, credential string) (bridge.Ext
 	}
 	request.Header = provider.headers.Clone()
 	request.Header.Set("Accept", "application/json")
-	location := provider.config.Credential
-	switch location.Location {
-	case "header":
-		request.Header.Set(location.Name, location.Prefix+credential)
-	case "cookie":
-		cookie := &http.Cookie{Name: location.Name, Value: credential}
-		if err := cookie.Valid(); err != nil {
-			return bridge.ExternalSubject{}, bridge.ErrCredentialRejected
-		}
-		request.AddCookie(cookie)
-	case "json":
+	if err := applyCredential(request, provider.config.Credential, credential); err != nil {
+		return bridge.ExternalSubject{}, err
+	}
+	if provider.config.Credential.Location == "json" {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	response, err := provider.client.Do(request)
@@ -148,7 +148,16 @@ func (provider *HTTP) Verify(ctx context.Context, credential string) (bridge.Ext
 	if err != nil {
 		return bridge.ExternalSubject{}, bridge.ErrProviderResponse
 	}
-	return bridge.ExternalSubject{ProviderKey: provider.key, SubjectID: subjectID, DisplayName: displayName, Email: email, ExpiresAt: expiresAt}, nil
+	subject := bridge.ExternalSubject{ProviderKey: provider.key, SubjectID: subjectID, DisplayName: displayName, Email: email, ExpiresAt: expiresAt}
+	if provider.profile != nil {
+		profile, err := provider.profile.Lookup(ctx, credential, subjectID)
+		if err != nil {
+			return bridge.ExternalSubject{}, err
+		}
+		subject.DisplayName = profile.DisplayName
+		subject.Email = profile.Email
+	}
+	return subject, nil
 }
 
 func opaqueID(value any) (string, bool) {

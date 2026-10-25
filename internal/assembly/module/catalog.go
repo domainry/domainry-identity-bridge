@@ -124,7 +124,7 @@ func (binding *Binding) PublishProjectRoles(ctx context.Context, catalog identit
 	if err := validateRoleCatalog(catalog); err != nil {
 		return identity.ProjectRoleCatalogReceipt{}, err
 	}
-	if err := validateRoleSelection(catalog, binding.Config.PersonalWorkspace.InitialRoleKeys, false); err != nil {
+	if err := validateRoleSelection(catalog, binding.Config.Workspace.InitialRoleKeys, false); err != nil {
 		return identity.ProjectRoleCatalogReceipt{}, err
 	}
 	for _, subject := range binding.Config.ServiceSubjects {

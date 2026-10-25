@@ -99,7 +99,7 @@ func validateRoleSelection(catalog identity.ProjectRoleCatalog, keys []string, s
 			}
 			for _, grant := range role.Permissions {
 				if strings.HasPrefix(grant.PermissionKey, "runtime.workspaceprovision.") || strings.HasPrefix(grant.PermissionKey, "runtime.operations.") {
-					return fmt.Errorf("personal role cannot grant installation administration")
+					return fmt.Errorf("external user role cannot grant installation administration")
 				}
 			}
 		}
@@ -112,8 +112,8 @@ func validateRoleSelection(catalog identity.ProjectRoleCatalog, keys []string, s
 	return nil
 }
 
-func (binding *Binding) assignment(ctx context.Context, owner ownership) (assignment, error) {
-	key := persistence.Key(binding.namespace(), "owner", owner.Binding.ExternalSubjectID)
+func (binding *Binding) assignment(ctx context.Context, member membership) (assignment, error) {
+	key := persistence.Key(binding.namespace(), "member", member.Binding.ExternalWorkspaceID, member.Binding.ExternalSubjectID)
 	record, found, err := binding.Store.Get(ctx, binding.Store.DB, binding.catalogKey("assignment", key))
 	if err != nil {
 		return assignment{}, err
@@ -132,11 +132,11 @@ func (binding *Binding) assignment(ctx context.Context, owner ownership) (assign
 }
 
 func (binding *Binding) assignedRoles(ctx context.Context, workspace, user string) ([]identity.Role, error) {
-	owner, err := binding.ownerForUser(ctx, workspace, user)
+	member, err := binding.memberForUser(ctx, workspace, user)
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := binding.assignment(ctx, owner)
+	assignment, err := binding.assignment(ctx, member)
 	if err != nil {
 		return nil, err
 	}
@@ -163,18 +163,18 @@ func (binding *Binding) ResolveAccess(ctx context.Context, request bridge.Policy
 	if request.ApplicationKey != binding.Config.ApplicationKey {
 		return identity.AccessBundle{}, denied()
 	}
-	owner, err := binding.ownerForUser(ctx, request.Workspace.WorkspaceID, request.Workspace.UserID)
+	member, err := binding.memberForUser(ctx, request.Workspace.WorkspaceID, request.Workspace.UserID)
 	if err != nil {
 		return identity.AccessBundle{}, err
 	}
-	if owner.Binding.ProviderKey != request.Workspace.ProviderKey || owner.Binding.ExternalSubjectID != request.Workspace.ExternalSubjectID {
+	if member.Binding.ProviderKey != request.Workspace.ProviderKey || member.Binding.ExternalWorkspaceID != request.Workspace.ExternalWorkspaceID || member.Binding.ExternalSubjectID != request.Workspace.ExternalSubjectID {
 		return identity.AccessBundle{}, denied()
 	}
-	assigned, err := binding.assignment(ctx, owner)
+	assigned, err := binding.assignment(ctx, member)
 	if err != nil {
 		return identity.AccessBundle{}, err
 	}
-	return binding.bundle(ctx, owner.Binding.WorkspaceID, owner.Binding.UserID, assigned.RoleKeys, false)
+	return binding.bundle(ctx, member.Binding.WorkspaceID, member.Binding.UserID, assigned.RoleKeys, false)
 }
 
 func (binding *Binding) bundle(ctx context.Context, workspace, user string, keys []string, service bool) (identity.AccessBundle, error) {

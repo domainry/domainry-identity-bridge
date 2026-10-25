@@ -9,17 +9,13 @@ import (
 type authentication struct{ binding *Binding }
 
 func (adapter authentication) CurrentSession(ctx context.Context, request identity.CurrentSessionRequest) (identity.SessionView, error) {
-	p, err := adapter.binding.Service.Authenticate(ctx, request.AccessToken)
+	p, err := adapter.binding.Authenticate(ctx, request.AccessToken)
 	if err != nil {
 		return identity.SessionView{}, err
 	}
-	roles, err := adapter.binding.assignedRoles(ctx, p.WorkspaceID, p.UserID)
-	if err != nil {
-		return identity.SessionView{}, err
-	}
-	result := identity.SessionView{WorkspaceID: identity.WorkspaceID(p.WorkspaceID), SubjectID: identity.SubjectID(p.UserID), AuthorizationRevision: identity.AuthorizationRevision(p.AuthorizationRevision), User: p.User, Roles: roles, Permissions: p.PermissionKeys()}
-	if len(roles) > 0 {
-		result.DefaultRole = roles[0].Key
+	result := identity.SessionView{WorkspaceID: identity.WorkspaceID(p.WorkspaceID), SubjectID: identity.SubjectID(p.UserID), AuthorizationRevision: identity.AuthorizationRevision(p.AuthorizationRevision), User: p.User, Roles: p.Roles, Permissions: p.PermissionKeys()}
+	if len(p.Roles) > 0 {
+		result.DefaultRole = p.Roles[0].Key
 	}
 	return result, nil
 }
@@ -28,7 +24,7 @@ func (adapter authentication) Verify(ctx context.Context, request identity.Verif
 	if request.Audience != "" && string(request.Audience) != adapter.binding.Config.ApplicationKey || request.Issuer != "" && request.Issuer != adapter.binding.Config.Provider.Key {
 		return identity.VerifiedToken{}, denied()
 	}
-	p, err := adapter.binding.Service.Authenticate(ctx, request.AccessToken)
+	p, err := adapter.binding.Authenticate(ctx, request.AccessToken)
 	if err != nil {
 		return identity.VerifiedToken{}, err
 	}

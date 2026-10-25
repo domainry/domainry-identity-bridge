@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,6 +15,7 @@ import (
 	bridge "github.com/domainry/domainry-identity-bridge/internal/domain/bridge"
 	"github.com/domainry/domainry-identity-bridge/internal/provider"
 	"github.com/domainry/domainry-identity-bridge/module/config"
+	identity "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/authorization"
 )
 
@@ -23,6 +25,8 @@ var (
 	ErrCredentialRejected   = bridge.ErrCredentialRejected
 	ErrProviderUnavailable  = bridge.ErrProviderUnavailable
 	ErrProviderResponse     = bridge.ErrProviderResponse
+	ErrWorkspaceSelection   = bridge.ErrWorkspaceSelection
+	ErrWorkspaceMembership  = bridge.ErrWorkspaceMembership
 	ErrWorkspaceUnavailable = bridge.ErrWorkspaceUnavailable
 	ErrWorkspaceMismatch    = bridge.ErrWorkspaceMismatch
 	ErrWorkspaceInactive    = bridge.ErrWorkspaceInactive
@@ -31,7 +35,8 @@ var (
 )
 
 type ExternalSubject = bridge.ExternalSubject
-type PersonalWorkspaceRequest = bridge.PersonalWorkspaceRequest
+type ExternalWorkspace = bridge.ExternalWorkspace
+type WorkspaceRequest = bridge.WorkspaceRequest
 type WorkspaceBinding = bridge.WorkspaceBinding
 type WorkspaceAuthority = bridge.WorkspaceAuthority
 type PolicyRequest = bridge.PolicyRequest
@@ -68,11 +73,28 @@ func Open(cfg config.Config, host Host, options Options) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Module{service: &application.Service{Config: snapshot, Host: host, Verifier: verifier, Now: now}}, nil
+	var membership application.MembershipVerifier
+	if snapshot.Workspace.Mode == "per_external_group" {
+		membership, err = provider.NewMembership(*snapshot.Workspace.Membership, options.Transport, options.LookupEnvironment)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Module{service: &application.Service{Config: snapshot, Host: host, Verifier: verifier, Membership: membership, Now: now}}, nil
 }
 
 func (value *Module) Authenticate(ctx context.Context, credential string) (authorization.Principal, error) {
-	return value.service.Authenticate(ctx, credential)
+	principal, err := value.service.Authenticate(ctx, credential)
+	if errors.Is(err, bridge.ErrWorkspaceSelection) || errors.Is(err, bridge.ErrWorkspaceMembership) {
+		return authorization.Principal{}, &identity.Error{Class: identity.ErrorClassForbidden, Code: "identity.external_workspace_denied", Cause: err}
+	}
+	return principal, err
+}
+
+// WithSelectedWorkspace supplies an untrusted external Workspace candidate for
+// non-HTTP callers. Authentication still verifies membership server-side.
+func WithSelectedWorkspace(ctx context.Context, externalWorkspaceID string) context.Context {
+	return application.WithSelectedWorkspace(ctx, externalWorkspaceID)
 }
 
 var _ authorization.PrincipalAuthenticator = (*Module)(nil)

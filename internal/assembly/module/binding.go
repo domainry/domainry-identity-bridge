@@ -2,6 +2,7 @@ package moduleassembly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,14 +41,21 @@ func Open(ctx context.Context, cfg config.Config, ref identity.ApplicationRef, h
 	if err != nil {
 		return nil, err
 	}
+	var membership application.MembershipVerifier
+	if cfg.Workspace.Mode == "per_external_group" {
+		membership, err = provider.NewMembership(*cfg.Workspace.Membership, transport, environment)
+		if err != nil {
+			return nil, err
+		}
+	}
 	value := &Binding{Config: cfg, Application: ref, Store: store, Now: now}
-	value.Service = &application.Service{Config: cfg, Host: bridge.Host{Workspaces: value, Policies: value}, Verifier: verifier, Now: now}
+	value.Service = &application.Service{Config: cfg, Host: bridge.Host{Workspaces: value, Policies: value}, Verifier: verifier, Membership: membership, Now: now}
 	return value, nil
 }
 
 func (binding *Binding) Descriptor() identity.Descriptor {
 	return identity.Descriptor{ProtocolVersion: identity.CurrentProtocolVersion, BundleVersion: identity.CurrentPolicyBundleVersion, AuthorizationVersion: identity.CurrentAuthorizationContractVersion,
-		Mode: identity.DeploymentModeExternal, Issuer: binding.Config.Provider.Key, Audience: binding.Config.ApplicationKey, Capabilities: []string{"external_authentication", "personal_workspace", "directory_projection", "authorization", "permission_registry", "project_roles"}}
+		Mode: identity.DeploymentModeExternal, Issuer: binding.Config.Provider.Key, Audience: binding.Config.ApplicationKey, Capabilities: []string{"external_authentication", "external_workspace", "directory_projection", "authorization", "permission_registry", "project_roles"}}
 }
 func (binding *Binding) PrincipalAuthenticator() identity.PrincipalAuthenticator {
 	return binding
@@ -55,7 +63,7 @@ func (binding *Binding) PrincipalAuthenticator() identity.PrincipalAuthenticator
 func (binding *Binding) Authenticate(ctx context.Context, credential string) (identity.Principal, error) {
 	principal, err := binding.Service.Authenticate(ctx, credential)
 	if err != nil {
-		return identity.Principal{}, err
+		return identity.Principal{}, authenticationError(err)
 	}
 	roles, err := binding.assignedRoles(ctx, principal.WorkspaceID, principal.UserID)
 	if err != nil || len(roles) == 0 {
@@ -64,6 +72,15 @@ func (binding *Binding) Authenticate(ctx context.Context, credential string) (id
 	principal.Roles = roles
 	principal.RoleKey = roles[0].Key
 	return principal, nil
+}
+
+func authenticationError(err error) error {
+	switch {
+	case errors.Is(err, bridge.ErrWorkspaceSelection), errors.Is(err, bridge.ErrWorkspaceMembership):
+		return &identity.Error{Class: identity.ErrorClassForbidden, Code: "identity.external_workspace_denied", Cause: err}
+	default:
+		return err
+	}
 }
 
 func (binding *Binding) Authentication() identity.Authentication    { return authentication{binding} }

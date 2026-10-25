@@ -38,28 +38,36 @@ func configuration(t *testing.T) config.Config {
 // hostFixture is a test double, not a production durability implementation.
 type hostFixture struct {
 	mu             sync.Mutex
-	requests       []module.PersonalWorkspaceRequest
+	requests       []module.WorkspaceRequest
 	bindings       map[string]module.WorkspaceBinding
+	workspaces     map[string]string
 	policyCalls    int
 	alterWorkspace func(*module.WorkspaceBinding)
 	alterPolicy    func(*authorization.AccessBundle)
 }
 
-func (host *hostFixture) ResolvePersonalWorkspace(_ context.Context, req module.PersonalWorkspaceRequest) (module.WorkspaceBinding, error) {
+func (host *hostFixture) ResolveWorkspace(_ context.Context, req module.WorkspaceRequest) (module.WorkspaceBinding, error) {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	host.requests = append(host.requests, req)
 	if host.bindings == nil {
 		host.bindings = make(map[string]module.WorkspaceBinding)
+		host.workspaces = make(map[string]string)
 	}
-	value, found := host.bindings[req.IdempotencyKey]
+	memberKey := req.IdempotencyKey + "\x00" + req.ExternalSubjectID
+	value, found := host.bindings[memberKey]
 	if !found {
 		if !req.CreateIfMissing {
 			return module.WorkspaceBinding{}, errors.New("missing")
 		}
-		value = module.WorkspaceBinding{InstallationID: req.InstallationID, ProviderKey: req.ProviderKey, ExternalSubjectID: req.ExternalSubjectID,
-			WorkspaceID: fmt.Sprintf("workspace-%d", len(host.bindings)+1), UserID: fmt.Sprintf("user-%d", len(host.bindings)+1), Active: true}
-		host.bindings[req.IdempotencyKey] = value
+		workspaceID := host.workspaces[req.IdempotencyKey]
+		if workspaceID == "" {
+			workspaceID = fmt.Sprintf("workspace-%d", len(host.workspaces)+1)
+			host.workspaces[req.IdempotencyKey] = workspaceID
+		}
+		value = module.WorkspaceBinding{InstallationID: req.InstallationID, ProviderKey: req.ProviderKey, ExternalWorkspaceID: req.ExternalWorkspaceID, ExternalSubjectID: req.ExternalSubjectID,
+			WorkspaceID: workspaceID, UserID: fmt.Sprintf("user-%d", len(host.bindings)+1), Active: true}
+		host.bindings[memberKey] = value
 	}
 	if host.alterWorkspace != nil {
 		host.alterWorkspace(&value)
@@ -111,8 +119,8 @@ func TestConfiguredVerificationProducesSDKPrincipal(t *testing.T) {
 	cfg.Provider.Verification.Response.ExpiryFormat = "rfc3339"
 	cfg.Provider.Verification.Response.Checks = []config.ResponseCheck{{Path: "/state", Equals: json.RawMessage(`"valid"`)}}
 	cfg.Provider.Verification.Credential = config.Credential{Location: "json", Name: "session_credential"}
-	cfg.PersonalWorkspace.NameTemplate = "{{.DisplayName}}'s workspace"
-	cfg.PersonalWorkspace.InitialRoleKeys = []string{"project_member"}
+	cfg.Workspace.NameTemplate = "{{.DisplayName}}'s workspace"
+	cfg.Workspace.InitialRoleKeys = []string{"project_member"}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -127,7 +135,7 @@ func TestConfiguredVerificationProducesSDKPrincipal(t *testing.T) {
 	host := &hostFixture{}
 	value := open(t, cfg, host, server)
 	// Caller mutation must not change the composed module's role configuration.
-	cfg.PersonalWorkspace.InitialRoleKeys[0] = "unexpected_role"
+	cfg.Workspace.InitialRoleKeys[0] = "unexpected_role"
 	principal, err := value.Authenticate(context.Background(), "opaque-access-token")
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +327,7 @@ func TestLookupOnlyAndMissingDependencies(t *testing.T) {
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(response("subject")) }))
 	defer server.Close()
-	cfg.PersonalWorkspace.CreateOnFirstAccess = false
+	cfg.Workspace.CreateOnFirstAccess = false
 	if _, err := open(t, cfg, host, server).Authenticate(context.Background(), "access-token"); !errors.Is(err, module.ErrWorkspaceUnavailable) {
 		t.Fatalf("unexpected error %v", err)
 	}

@@ -2,6 +2,7 @@ export interface ExternalIdentityOptions {
   runtimeURL: string
   fetch?: typeof globalThis.fetch
   credential?: () => string | Promise<string>
+  workspace?: () => string | Promise<string>
   clearCredential?: () => void | Promise<void>
   redirect?: (url: string) => void
 }
@@ -20,9 +21,16 @@ export interface ExternalBrowserConfiguration {
   application_key: string
   display_name: string
   session_path: '/auth/external/session'
+	workspaces_path?: '/auth/external/workspaces'
   login_url: string
   logout_url?: string
   credential: { location: 'cookie' | 'header'; name?: string; prefix?: string }
+  workspace_mode: 'per_user' | 'per_external_group'
+  workspace_selector?: { location: 'header'; name: string }
+}
+export interface ExternalWorkspace {
+  id: string
+  name?: string
 }
 export declare class ExternalIdentityError extends Error {
   readonly status: number
@@ -36,6 +44,7 @@ export declare class ExternalIdentityClient {
   configuration(): Promise<ExternalBrowserConfiguration>
   authorizedFetch(path: string, init?: RequestInit): Promise<Response>
   session(): Promise<ExternalSession>
+	workspaces(): Promise<ExternalWorkspace[]>
   login(): Promise<void>
   logout(): Promise<void>
 }

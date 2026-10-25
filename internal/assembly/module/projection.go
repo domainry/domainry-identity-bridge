@@ -52,19 +52,19 @@ func (adapter projection) FindUser(ctx context.Context, request identity.UserLoo
 	return identity.User{}, false, nil
 }
 func (adapter projection) users(ctx context.Context, workspace string) ([]identity.User, error) {
-	records, err := adapter.binding.Store.List(ctx, adapter.binding.namespace(), "owner", workspace)
+	records, err := adapter.binding.Store.List(ctx, adapter.binding.namespace(), "member", workspace)
 	if err != nil {
 		return nil, err
 	}
 	result := []identity.User{}
 	for _, record := range records {
-		var owner ownership
-		if err := json.Unmarshal(record.Payload, &owner); err != nil {
+		var member membership
+		if err := json.Unmarshal(record.Payload, &member); err != nil {
 			return nil, err
 		}
-		if owner.Binding.Active {
-			if _, err := adapter.binding.assignment(ctx, owner); err == nil {
-				result = append(result, owner.User)
+		if member.Binding.Active {
+			if _, err := adapter.binding.assignment(ctx, member); err == nil {
+				result = append(result, member.User)
 			} else {
 				var deniedError *identity.Error
 				if !errors.As(err, &deniedError) || deniedError.Code != "identity.external_scope_denied" {
@@ -125,7 +125,7 @@ func (adapter projection) ListUserRoleAssignments(ctx context.Context, request i
 			return nil, err
 		}
 		for _, role := range roles {
-			result = append(result, identity.UserRoleAssignment{UserID: user.UserID, RoleID: role.RoleID, Source: "external_personal_owner"})
+			result = append(result, identity.UserRoleAssignment{UserID: user.UserID, RoleID: role.RoleID, Source: "external_workspace_member"})
 		}
 	}
 	return result, nil
@@ -156,16 +156,16 @@ func (binding *Binding) Resolve(ctx context.Context, request identity.PrincipalR
 	}
 	var profile identity.User
 	if !isService {
-		owner, err := binding.ownerForUser(ctx, workspace, user)
+		member, err := binding.memberForUser(ctx, workspace, user)
 		if err != nil {
 			return identity.PrincipalResolution{}, err
 		}
-		assigned, err := binding.assignment(ctx, owner)
+		assigned, err := binding.assignment(ctx, member)
 		if err != nil {
 			return identity.PrincipalResolution{}, err
 		}
 		roles = assigned.RoleKeys
-		profile = owner.User
+		profile = member.User
 	} else {
 		profile = identity.User{UserID: user, Name: user, Status: "active", AccountType: "service"}
 	}
