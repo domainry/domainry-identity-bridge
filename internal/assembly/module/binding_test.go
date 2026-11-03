@@ -140,20 +140,76 @@ func publish(t *testing.T, b *Binding) {
 	definitions := []identity.PermissionDefinition{}
 	for _, op := range []string{"read", "create", "update", "export"} {
 		grants = append(grants, identity.ProjectRolePermission{PermissionKey: "note." + op, DataScope: identity.DataScopeOwner})
-		definitions = append(definitions, identity.PermissionDefinition{PermissionKey: "note." + op, ResourceKey: "note", OperationKey: op, Label: op, Category: "business", SourceKind: "manifest"})
+		definitions = append(definitions, identity.PermissionDefinition{
+			PermissionKey: "note." + op, ModuleKey: "runtime", GroupKey: "notes", ResourceKey: "note", OperationKey: op,
+			Label: op, Category: "business", SourceKind: "manifest", GrantMode: "direct", ScopeKind: "record", ObjectKey: "note", DefaultLocale: "en",
+			I18n: identity.PermissionLocalizedText{"en": {ModuleLabel: "Runtime", GroupLabel: "Notes", ResourceLabel: "Note", OperationLabel: op, Label: op}},
+		})
 	}
-	request, err := identity.NewPermissionReconcileRequest(b.Application, "runtime", "", definitions)
+	request, err := identity.NewPermissionReconcileRequest("runtime", "", definitions)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.Reconcile(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.PublishProjectRoles(t.Context(), identity.ProjectRoleCatalog{Application: b.Application, Objects: json.RawMessage(`[{"key":"note","fields":[{"key":"text"},{"key":"secret"}]}]`), Roles: []identity.ProjectRoleDefinition{{Key: "personal_owner", Name: "Owner", Audience: "user", AssignmentMode: "manual", ProvisionToWorkspaces: true, Permissions: grants, FieldPermissions: json.RawMessage(`[{"object_key":"note","field_key":"secret","read":false,"write":false,"export":false}]`), ExportRules: json.RawMessage(`[{"object_key":"note","mode":"selected_fields","fields":["text"]}]`)}}})
+	_, err = b.PublishProjectRoles(t.Context(), identity.ProjectRoleCatalog{SourceOwner: "project:" + b.Config.ApplicationKey, Objects: json.RawMessage(`[{"key":"note","fields":[{"key":"text"},{"key":"secret"}]}]`), Roles: []identity.ProjectRoleDefinition{{Key: "personal_owner", Name: "Owner", Description: "Personal workspace owner", Audience: "user", AssignmentMode: "manual", Permissions: grants, FieldPermissions: json.RawMessage(`[{"object_key":"note","field_key":"secret","read":false,"write":false,"export":false}]`), ExportRules: json.RawMessage(`[{"object_key":"note","mode":"selected_fields","fields":["text"]}]`)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
+
+func TestProjectRoleCatalogsReconcileBySourceOwner(t *testing.T) {
+	h := openHost(t, filepath.Join(t.TempDir(), "bridge.db"))
+	b := testBinding(t, h, "app")
+	publish(t, b)
+
+	receipt, err := b.PublishProjectRoles(t.Context(), identity.ProjectRoleCatalog{
+		SourceOwner: "module:analytics",
+		Roles: []identity.ProjectRoleDefinition{{
+			Key: "analyst", Name: "Analyst", Audience: "user", AssignmentMode: "manual",
+			Permissions: []identity.ProjectRolePermission{{PermissionKey: "note.read", DataScope: identity.DataScopeAll}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.SourceOwner != "module:analytics" || receipt.Published != 1 || receipt.SHA256 == "" {
+		t.Fatalf("unexpected role receipt: %+v", receipt)
+	}
+	effective, err := b.roles(t.Context(), b.Store.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effective.Roles) != 2 || effective.Roles[0].Key != "analyst" || effective.Roles[1].Key != "personal_owner" {
+		t.Fatalf("source-owned role catalogs were not merged: %+v", effective.Roles)
+	}
+	if _, err := b.PublishProjectRoles(t.Context(), identity.ProjectRoleCatalog{
+		SourceOwner: "module:conflict",
+		Roles:       []identity.ProjectRoleDefinition{{Key: "personal_owner", Name: "Conflict", Audience: "user", AssignmentMode: "manual"}},
+	}); err == nil {
+		t.Fatal("cross-owner role collision was accepted")
+	}
+}
+
+func TestProjectRoleDataPolicyCompiles(t *testing.T) {
+	policy := identity.ProjectDataPolicy{Operator: identity.ProjectDataPolicyEq, FieldKey: "owner_user_id", SubjectClaim: identity.ProjectSubjectClaimID}
+	catalog := identity.ProjectRoleCatalog{SourceOwner: "project:app", Roles: []identity.ProjectRoleDefinition{{
+		Key: "owner", Name: "Owner", Audience: "user", AssignmentMode: "manual",
+		Permissions: []identity.ProjectRolePermission{{PermissionKey: "note.read", DataPolicy: &policy}},
+	}}}
+	if err := validateRoleCatalog(catalog); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := compileRoles(catalog, []string{"owner"}, identity.Subject{WorkspaceID: "workspace", SubjectID: "user"}, "revision", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.DataPolicies) != 1 || bundle.DataPolicies[0].Predicate.Fact != "owner_user_id" || bundle.DataPolicies[0].Predicate.Value != "$subject.id" || len(bundle.DataPolicies[0].DataScopes) != 0 {
+		t.Fatalf("project data policy was not compiled: %+v", bundle.DataPolicies)
+	}
+}
+
 func TestPersonalWorkspacePersistsAndIsolatesAcrossApplications(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bridge.db")
 	h := openHost(t, path)
@@ -388,7 +444,7 @@ func TestPrincipalResolverRequiresExplicitWorkspaceAndConfiguredServiceRole(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.RoleKey != "personal_owner" || len(p.Roles) != 1 {
+	if p.RoleKey != "personal_owner" || len(p.Roles) != 1 || p.Roles[0].Description != "Personal workspace owner" {
 		t.Fatal("authenticated role projection missing")
 	}
 	if _, err := b.Resolve(t.Context(), identity.PrincipalResolutionRequest{SubjectID: identity.SubjectID(p.UserID)}); err == nil {

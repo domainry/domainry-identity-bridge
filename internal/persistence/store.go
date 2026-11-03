@@ -102,6 +102,10 @@ func (store *Store) Get(ctx context.Context, db sqlhost.DBTX, key string) (Recor
 }
 
 func (store *Store) List(ctx context.Context, namespace, kind, workspaceID string) ([]Record, error) {
+	return store.ListWith(ctx, store.DB, namespace, kind, workspaceID)
+}
+
+func (store *Store) ListWith(ctx context.Context, db sqlhost.DBTX, namespace, kind, workspaceID string) ([]Record, error) {
 	predicates := []query.Predicate{query.Equal("namespace", namespace), query.Equal("kind", kind)}
 	if workspaceID != "" {
 		predicates = append(predicates, query.Equal("workspace_id", workspaceID))
@@ -110,7 +114,7 @@ func (store *Store) List(ctx context.Context, namespace, kind, workspaceID strin
 	if err != nil {
 		return nil, err
 	}
-	rows, err := store.DB.QueryContext(ctx, statement, args...)
+	rows, err := db.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return nil, err
 	}

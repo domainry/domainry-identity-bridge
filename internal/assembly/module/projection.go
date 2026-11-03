@@ -200,5 +200,5 @@ func (binding *Binding) projectRole(role identity.ProjectRoleDefinition) (identi
 	}
 	// Bridge projects source-owned roles; there is no Identity role-table row
 	// whose numeric ID could be supplied here.
-	return identity.Role{RoleID: roleID, Key: role.Key, Label: role.Name, Status: "active"}, nil
+	return identity.Role{RoleID: roleID, Key: role.Key, Label: role.Name, Description: role.Description, Status: "active"}, nil
 }

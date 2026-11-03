@@ -54,7 +54,7 @@ func validateRoleCatalog(catalog identity.ProjectRoleCatalog) error {
 		seen[role.Key] = true
 		grants := map[string]bool{}
 		for _, grant := range role.Permissions {
-			if !grant.DataScope.Valid() || grant.PermissionKey == "" || grants[grant.PermissionKey] {
+			if grant.Validate() != nil || grant.PermissionKey == "" || grants[grant.PermissionKey] {
 				return fmt.Errorf("invalid external role grant")
 			}
 			grants[grant.PermissionKey] = true
@@ -94,7 +94,7 @@ func validateRoleSelection(catalog identity.ProjectRoleCatalog, keys []string, s
 				return denied()
 			}
 		} else {
-			if !role.ProvisionToWorkspaces || (role.Audience != "" && role.Audience != "any" && role.Audience != "user") || (role.AssignmentMode != "" && role.AssignmentMode != "manual") {
+			if (role.Audience != "" && role.Audience != "any" && role.Audience != "user") || (role.AssignmentMode != "" && role.AssignmentMode != "manual") {
 				return denied()
 			}
 			for _, grant := range role.Permissions {
@@ -252,7 +252,18 @@ func compileRoles(catalog identity.ProjectRoleCatalog, keys []string, subject id
 			resource, action := grant.PermissionKey[:at], grant.PermissionKey[at+1:]
 			roleFunctions[grant.PermissionKey] = true
 			functions[grant.PermissionKey] = identity.FunctionGrant{Resource: identity.ResourceType(resource), Action: identity.Action(action), Effect: identity.EffectAllow}
-			bundle.DataPolicies = append(bundle.DataPolicies, identity.DataPolicy{Key: role.Key + ":" + grant.PermissionKey, Resource: identity.ResourceType(resource), Action: identity.Action(action), Effect: identity.EffectAllow, DataScopes: []identity.DataScope{grant.DataScope}, Predicate: scopePredicate(grant.DataScope), AuditDenial: grant.AuditDenial})
+			policy := identity.DataPolicy{Key: role.Key + ":" + grant.PermissionKey, Resource: identity.ResourceType(resource), Action: identity.Action(action), Effect: identity.EffectAllow, AuditDenial: grant.AuditDenial}
+			if grant.DataPolicy != nil {
+				predicate, err := grant.DataPolicy.Predicate()
+				if err != nil {
+					return bundle, err
+				}
+				policy.Predicate = predicate
+			} else {
+				policy.DataScopes = []identity.DataScope{grant.DataScope}
+				policy.Predicate = scopePredicate(grant.DataScope)
+			}
+			bundle.DataPolicies = append(bundle.DataPolicies, policy)
 		}
 		localFields := map[string]identity.FieldPolicy{}
 		for _, object := range objects {
